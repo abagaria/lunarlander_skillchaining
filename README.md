@@ -1,4 +1,4 @@
 #Installation
 install Tensorflow from virtual environment
 pip install gym
-pip install Box2D from source
+pip install pybox2d from source
