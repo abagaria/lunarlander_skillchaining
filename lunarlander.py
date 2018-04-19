@@ -9,6 +9,7 @@ from gym import wrappers
 import tensorflow as tf
 
 import time
+import datetime
 import os
 from os import path
 import sys
@@ -96,6 +97,11 @@ def main():
     is_not_terminal_ph = tf.placeholder(dtype=tf.float32, shape=[None]) # indicators (go into target computation)
     is_training_ph = tf.placeholder(dtype=tf.bool, shape=()) # for dropout
 
+    episode_reward = tf.Variable(0.)
+    tf.summary.scalar("Episode Reward", episode_reward)
+    r_summary_placeholder = tf.placeholder("float")
+    update_ep_reward = episode_reward.assign(r_summary_placeholder)
+
     # episode counter
     episodes = tf.Variable(0.0, trainable=False, name='episodes')
     episode_inc_op = episodes.assign_add(1)
@@ -166,6 +172,9 @@ def main():
     epsilon = epsilon_start
     epsilon_linear_step = (epsilon_start-epsilon_end)/epsilon_decay_length
 
+    board_name = datetime.datetime.fromtimestamp(time.time()).strftime('board_%Y_%m_%d_%H_%M_%S')
+    writer = tf.summary.FileWriter(board_name)
+    writer.add_graph(sess.graph)
     start_time = time.time()
     for ep in range(num_episodes):
 
@@ -227,14 +236,17 @@ def main():
             if total_steps == epsilon_decay_length:
                 print('--------------------------------MOVING TO EXPONENTIAL EPSILON DECAY-----------------------------------------')
             
-            if done: 
+            if done:
                 # Increment episode counter
                 _ = sess.run(episode_inc_op)
                 break
 
+        sess.run(update_ep_reward, feed_dict={r_summary_placeholder: total_reward})
+        summary_str = sess.run(tf.summary.merge_all())
+        writer.add_summary(summary_str, ep)
+
         print('Episode %2i, Reward: %7.3f, Steps: %i, Next eps: %7.3f, Minutes: %7.3f'%\
             (ep,total_reward,steps_in_ep, epsilon, (time.time() - start_time)/60))
-
 
     env.close()
 
