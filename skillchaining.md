@@ -20,15 +20,17 @@
  - Gestation period
  - 
 
- https://www2.cs.duke.edu/research/AI/LSPI/
- 
- change point detection after solving mdp - state trajectory through time, fit model to it
- Bayesian thing to determine when model is different
- scott nikum package champ
+starts taking 1000 steps after moving to exponential decay
 
- fixed timelength pick some number of steps and classify after that
- easy hack
+https://www2.cs.duke.edu/research/AI/LSPI/
 
- bottleneck states best in theory
- trajectories into density estimator, sample from estimator
- find the peaks, non-maximal supression - ask Ben B
+change point detection after solving mdp - state trajectory through time, fit model to it
+Bayesian thing to determine when model is different
+scott nikum package champ
+
+fixed timelength pick some number of steps and classify after that
+easy hack
+
+bottleneck states best in theory
+trajectories into density estimator, sample from estimator
+find the peaks, non-maximal supression - ask Ben B

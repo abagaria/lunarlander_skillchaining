@@ -27,6 +27,7 @@ def main():
     parser.set_defaults(feature=False)
     args = parser.parse_args()
 
+    # DQN Params
     gamma = 0.99
     # Hidden layer sizes
     h1 = 512
@@ -46,9 +47,16 @@ def main():
     minibatch_size = 1024
     epsilon_start = 1.0
     epsilon_end = 0.05
-    # TODO: increase
     epsilon_decay_length = 10000
-    epsilon_decay_exp = 0.97
+    epsilon_decay_exp = 0.98
+
+    # Skill chain params
+    # How long to wait before adding new option?
+    steps_per_opt = num_episodes/10
+    # don't execute after creating, off-policy learning
+    gestation = 10
+    # Stop adding options after this timestep
+    add_opt_cutoff = num_episodes/2
 
     # game parameters
     env = gym.make("LunarLander-v2")
