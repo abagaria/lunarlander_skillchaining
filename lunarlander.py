@@ -30,9 +30,9 @@ def main():
     # DQN Params
     gamma = 0.99
     # Hidden layer sizes
-    h1 = 512
-    h2 = 512
-    h3 = 512
+    h1 = 200
+    h2 = 200
+    h3 = 200
     lr = 5e-5
     # decay per episode
     lr_decay = 1
