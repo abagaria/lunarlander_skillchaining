@@ -18,7 +18,9 @@
 
 # Other implementation notes
  - Gestation period
- - 
+ - off-policy updates if state outside initiation set ignored
+ - updates for unsuccessful on-policy trajectory ignored
+ - when option is executed, states on trajectories that reach goal within 250 steps used as positive examples
 
 starts taking 1000 steps after moving to exponential decay
 

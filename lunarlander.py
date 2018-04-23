@@ -39,7 +39,8 @@ def main():
     l2_reg = 1e-6
     dropout = 0
     num_episodes = 1000
-    max_steps_ep = 10000
+    # gym cuts off after 1000, anyway
+    max_steps_ep = 1000
     slow_target_burnin = 1000
     update_slow_target_every = 100
     train_every = 1
