@@ -20,8 +20,7 @@ import argparse
 
 def main():
 
-    parser = argparse.ArgumentParser(description = \
-        "Lunar Lander")
+    parser = argparse.ArgumentParser(description = "Lunar Lander")
     parser.add_argument('--visualize', dest='visualize', action='store_true')
     parser.add_argument('--no-visualize', dest='visualize', action='store_false')
     parser.set_defaults(feature=False)
@@ -41,7 +40,6 @@ def main():
     num_episodes = 1000
     # gym cuts off after 1000, anyway
     max_steps_ep = 1000
-    slow_target_burnin = 1000
     update_slow_target_every = 100
     train_every = 1
     replay_memory_capacity = int(1e6)
@@ -51,14 +49,6 @@ def main():
     epsilon_decay_length = 10000
     epsilon_decay_exp = 0.98
 
-    # Skill chain params
-    # How long to wait before adding new option?
-    steps_per_opt = num_episodes/10
-    # don't execute after creating, off-policy learning
-    gestation = 10
-    # Stop adding options after this timestep
-    add_opt_cutoff = num_episodes/2
-
     # game parameters
     env = gym.make("LunarLander-v2")
     state_dim = np.prod(np.array(env.observation_space.shape))
@@ -67,31 +57,6 @@ def main():
     # set seeds to 0
     env.seed(0)
     np.random.seed(0)
-
-    # prepare monitorings
-    info = {}
-    info['env_id'] = env.spec.id
-    info['params'] = dict(
-        gamma = gamma,
-        h1 = h1,
-        h2 = h2,
-        h3 = h3,
-        lr = lr,
-        lr_decay = lr_decay,
-        l2_reg = l2_reg,
-        dropout = dropout,
-        num_episodes = num_episodes,
-        max_steps_ep = max_steps_ep,
-        slow_target_burnin = slow_target_burnin,
-        update_slow_target_every = update_slow_target_every,
-        train_every = train_every,
-        replay_memory_capacity = replay_memory_capacity,
-        minibatch_size = minibatch_size,
-        epsilon_start = epsilon_start,
-        epsilon_end = epsilon_end,
-        epsilon_decay_length = epsilon_decay_length,
-        epsilon_decay_exp = epsilon_decay_exp
-    )
 
     ####################################################################################################################
     ## Tensorflow
