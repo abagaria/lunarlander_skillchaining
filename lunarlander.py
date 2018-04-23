@@ -100,14 +100,32 @@ def main():
         # Q network applied to next_state_ph (for double Q learning)
         q_action_values_next = tf.stop_gradient(generate_network(next_state_ph, trainable = False, reuse = True))
 
+    # slow target network
+    with tf.variable_scope('slow_target_network', reuse=False):
+        # use stop_gradient to treat the output values as constant targets when doing backprop
+        slow_target_action_values = tf.stop_gradient(generate_network(next_state_ph, trainable = False, reuse = False))
+
     # isolate vars for each network
     q_network_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='q_network')
+    slow_target_network_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='slow_target_network')
+
+    # update values for slowly-changing target network to match current critic network
+    update_slow_target_ops = []
+    for i, slow_target_var in enumerate(slow_target_network_vars):
+        update_slow_target_op = slow_target_var.assign(q_network_vars[i])
+        update_slow_target_ops.append(update_slow_target_op)
+
+    update_slow_target_op = tf.group(*update_slow_target_ops, name='update_slow_target')
+
+    targets = reward_ph + is_not_terminal_ph * gamma * \
+        tf.gather_nd(slow_target_action_values, tf.stack((tf.range(minibatch_size), \
+            tf.cast(tf.argmax(q_action_values_next, axis=1), tf.int32)), axis=1))
 
     # Estimated Q values for (s,a) from experience replay
     estim_taken_action_vales = tf.gather_nd(q_action_values, tf.stack((tf.range(minibatch_size), action_ph), axis=1))
 
     # loss function (with regularization)
-    loss = tf.reduce_mean(tf.square(reward_ph - estim_taken_action_vales))
+    loss = tf.reduce_mean(tf.square(targets - estim_taken_action_vales))
     for var in q_network_vars:
         if not 'bias' in var.name:
             loss += l2_reg * 0.5 * tf.nn.l2_loss(var)
@@ -157,6 +175,10 @@ def main():
 
             # add this to experience replay buffer
             experience.append((observation, action, reward, next_observation, 0.0 if done else 1.0))
+
+            # update the slow target's weights to match the latest q network if it's time to do so
+            if total_steps%update_slow_target_every == 0:
+                _ = sess.run(update_slow_target_op)
 
             # update network weights to fit a minibatch of experience
             if total_steps%train_every == 0 and len(experience) >= minibatch_size:
