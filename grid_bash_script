@@ -1,4 +1,4 @@
 #!/bin/bash
 source ~/.virtualenvs/tensorflow_gpu/bin/activate
 cd ~/lunarlander_skillchaining
-python lunarlander.py
+python skillchain_lunarlander.py
