@@ -20,6 +20,9 @@ from anytree import NodeMixin, RenderTree
 
 import argparse
 
+def getMinibatchElem(minibatch, i):
+    return np.asarray([elem[i] for elem in minibatch])
+
 def main():
 
     parser = argparse.ArgumentParser(description = "Lunar Lander")
@@ -146,6 +149,8 @@ def main():
     board_name = datetime.datetime.fromtimestamp(time.time()).strftime('board_%Y_%m_%d_%H_%M_%S')
     class Option:
         def __init__(self, n):
+            self.n = n
+
             self.sess = tf.Session()
             self.sess.run(tf.global_variables_initializer())
 
@@ -160,13 +165,19 @@ def main():
 
             self.gestation = True
 
+            self.epsilon = epsilon_start
+            self.epsilon_linear_step = (epsilon_start-epsilon_end)/epsilon_decay_length
+            self.total_steps = 0
+
         def writeReward(self, r, ep):
             self.sess.run(update_ep_reward, feed_dict={r_summary_placeholder: r})
             summary_str = self.sess.run(tf.summary.merge_all())
             self.writer.add_summary(summary_str, ep)
 
         def retrainInitationClassifier(self):
+            start_time = time.time()
             self.initiation_classifier.fit(self.initiation_examples, self.initiation_labels)
+            print "Retrained option", n, "classifier in", x, "minutes."
 
         def addInitiationExample(self, state, label):
             self.initiation_examples.append(state)
@@ -175,6 +186,15 @@ def main():
         def inInitiationSet(self, state):
             return self.initiation_classifier.predict([state])[0]
 
+        def updateEpsilon(self, done):
+            # linearly decay epsilon from epsilon_start to epsilon_end over epsilon_decay_length steps
+            if self.total_steps < epsilon_decay_length:
+                self.epsilon -= self.epsilon_linear_step
+            # then exponentially decay it every episode
+            elif done:
+                self.epsilon *= epsilon_decay_exp
+
+    # http://anytree.readthedocs.io/en/latest/api/anytree.node.html#anytree.node.nodemixin.NodeMixin
     class Skill(Option, NodeMixin):
         def __init__(self, n, parent = None):
             super(Skill, self).__init__(n)
@@ -186,13 +206,6 @@ def main():
 
     #####################################################################################################
     ## Training
-
-    total_steps = 0
-
-    epsilon = epsilon_start
-    epsilon_linear_step = (epsilon_start-epsilon_end)/epsilon_decay_length
-
-    #skill_tree = SkillTree()
 
     start_time = time.time()
     for ep in range(num_episodes):
@@ -207,7 +220,7 @@ def main():
             current_position = observation[:2]
 
             # choose action according to epsilon-greedy policy wrt Q
-            if np.random.random() < epsilon:
+            if np.random.random() < opt.epsilon:
                 action = np.random.randint(n_actions)
             else:
                 q_s = opt.sess.run(q_action_values, feed_dict = {state_ph: observation[None], is_training_ph: False})
@@ -219,14 +232,16 @@ def main():
                 env.render()
             total_reward += reward
 
+            # TODO: Only if it's in initiation set..
             # add this to experience replay buffer
             opt.experience.append((observation, action, reward, next_observation, 0.0 if done else 1.0))
+            
             # update the slow target's weights to match the latest q network if it's time to do so
-            if total_steps%update_slow_target_every == 0:
+            if opt.total_steps%update_slow_target_every == 0:
                 _ = opt.sess.run(update_slow_target_op)
 
             # update network weights to fit a minibatch of experience
-            if total_steps%train_every == 0 and len(opt.experience) >= minibatch_size:
+            if opt.total_steps%train_every == 0 and len(opt.experience) >= minibatch_size:
 
                 # grab N (s,a,r,s') tuples from experience
                 minibatch = random.sample(opt.experience, minibatch_size)
@@ -234,26 +249,14 @@ def main():
                 # do a train_op with all the inputs required
                 
                 _ = opt.sess.run(train_op,
-                    feed_dict = {
-                        state_ph: np.asarray([elem[0] for elem in minibatch]),
-                        action_ph: np.asarray([elem[1] for elem in minibatch]),
-                        reward_ph: np.asarray([elem[2] for elem in minibatch]),
-                        next_state_ph: np.asarray([elem[3] for elem in minibatch]),
-                        is_not_terminal_ph: np.asarray([elem[4] for elem in minibatch]),
-                        is_training_ph: True})
+                    feed_dict = {state_ph: getMinibatchElem(minibatch, 0), action_ph: getMinibatchElem(minibatch, 1), \
+                        reward_ph: getMinibatchElem(minibatch, 2), next_state_ph: getMinibatchElem(minibatch, 3), \
+                        is_not_terminal_ph: getMinibatchElem(minibatch, 4), is_training_ph: True})
             observation = next_observation
-            total_steps += 1
+            opt.total_steps += 1
             steps_in_ep += 1
 
-            # linearly decay epsilon from epsilon_start to epsilon_end over epsilon_decay_length steps
-            if total_steps < epsilon_decay_length:
-                epsilon -= epsilon_linear_step
-            # then exponentially decay it every episode
-            elif done:
-                epsilon *= epsilon_decay_exp
-
-            if total_steps == epsilon_decay_length:
-                print('--------------------------------MOVING TO EXPONENTIAL EPSILON DECAY-----------------------------------------')
+            opt.updateEpsilon(done)
 
             if done:
                 # Increment episode counter
@@ -263,7 +266,7 @@ def main():
         opt.writeReward(total_reward, ep)
 
         print('Episode %2i, Reward: %7.3f, Steps: %i, Next eps: %7.3f, Minutes: %7.3f'%\
-            (ep,total_reward,steps_in_ep, epsilon, (time.time() - start_time)/60))
+            (ep,total_reward,steps_in_ep, opt.epsilon, (time.time() - start_time)/60))
 
     env.close()
 
