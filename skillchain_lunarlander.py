@@ -7,6 +7,7 @@ import numpy as np
 import gym
 from gym import wrappers
 import tensorflow as tf
+from sklearn import svm
 
 import time
 import datetime
@@ -15,6 +16,7 @@ from os import path
 import sys
 import random
 from collections import deque
+from anytree import NodeMixin, RenderTree
 
 import argparse
 
@@ -150,15 +152,37 @@ def main():
             self.writer = tf.summary.FileWriter(board_name + '_' + str(n))
             self.writer.add_graph(self.sess.graph)
 
+            self.initiation_examples = []
+            self.initiation_labels = []
+            self.initiation_classifier = svm.SVC(kernel="rbf")
+
             self.experience = deque(maxlen=replay_memory_capacity)
+
+            self.gestation = True
 
         def writeReward(self, r, ep):
             self.sess.run(update_ep_reward, feed_dict={r_summary_placeholder: r})
             summary_str = self.sess.run(tf.summary.merge_all())
             self.writer.add_summary(summary_str, ep)
 
+        def retrainInitationClassifier(self):
+            self.initiation_classifier.fit(self.initiation_examples, self.initiation_labels)
+
+        def addInitiationExample(self, state, label):
+            self.initiation_examples.append(state)
+            self.initiation_labels.append(label)
+
+        def inInitiationSet(self, state):
+            return self.initiation_classifier.predict([state])[0]
+
+    class Skill(Option, NodeMixin):
+        def __init__(self, n, parent = None):
+            super(Skill, self).__init__(n)
+            self.parent = parent
+            self.name = str(n)
+
     # initialize session
-    opt = Option(0)
+    opt = Skill(0)
 
     #####################################################################################################
     ## Training
@@ -167,6 +191,8 @@ def main():
 
     epsilon = epsilon_start
     epsilon_linear_step = (epsilon_start-epsilon_end)/epsilon_decay_length
+
+    #skill_tree = SkillTree()
 
     start_time = time.time()
     for ep in range(num_episodes):
@@ -177,6 +203,8 @@ def main():
         observation = env.reset()
 
         for t in range(max_steps_ep):
+
+            current_position = observation[:2]
 
             # choose action according to epsilon-greedy policy wrt Q
             if np.random.random() < epsilon:
