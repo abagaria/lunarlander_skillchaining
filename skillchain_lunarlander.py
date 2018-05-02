@@ -23,6 +23,9 @@ import argparse
 def getMinibatchElem(minibatch, i):
     return np.asarray([elem[i] for elem in minibatch])
 
+def statesFromExperiences(experiences):
+    return [example[0][:2] for example in experiences]
+
 def main():
 
     parser = argparse.ArgumentParser(description = "Lunar Lander")
@@ -49,18 +52,24 @@ def main():
     train_every = 1
     replay_memory_capacity = int(1e6)
     minibatch_size = 1024
+    #TODO: Get epsilon close to zero by ep 50
     epsilon_start = 1.0
     epsilon_end = 0.05
     epsilon_decay_length = 10000
     epsilon_decay_exp = 0.98
 
     # Skill chain params
-    # How long to wait before adding new option?
-    steps_per_opt = num_episodes/10
     # don't execute after creating, off-policy learning
     gestation = 10
     # Stop adding options after this timestep
     add_opt_cutoff = num_episodes/2
+    # Maximum number of steps in one option
+    max_steps_opt = max_steps_ep/10
+    # Option completion reward
+    opt_r = 35
+
+    # How long to wait before adding new option?
+    steps_per_opt = num_episodes/10
 
     # game parameters
     env = gym.make("LunarLander-v2")
@@ -146,6 +155,9 @@ def main():
     # optimizer
     train_op = tf.train.AdamOptimizer(lr*lr_decay**episodes).minimize(loss)
 
+    ## Tensorflow
+    ####################################################################################################################
+
     board_name = datetime.datetime.fromtimestamp(time.time()).strftime('board_%Y_%m_%d_%H_%M_%S')
     class Option:
         def __init__(self, n):
@@ -175,13 +187,24 @@ def main():
             self.writer.add_summary(summary_str, ep)
 
         def retrainInitationClassifier(self):
-            start_time = time.time()
-            self.initiation_classifier.fit(self.initiation_examples, self.initiation_labels)
-            print "Retrained option", n, "classifier in", x, "minutes."
+            if len([x for x in self.initiation_labels if x == 1]) != 0 and \
+                len([x for x in self.initiation_labels if x == 0]) != 0:
+                print "Training classifier with", len([x for x in self.initiation_labels if x == 1]), \
+                    "positive examples and", len([x for x in self.initiation_labels if x == 0]), "negative examples." 
+                class_start_time = time.time()
+                self.initiation_classifier.fit(self.initiation_examples, self.initiation_labels)
+                print "Retrained option", self.n, "classifier in", (time.time() - class_start_time), "seconds."
+            else:
+                print "Not training classifier,", len([x for x in self.initiation_labels if x == 1]), \
+                    "positive examples and", len([x for x in self.initiation_labels if x == 0]), "negative examples."
 
         def addInitiationExample(self, state, label):
             self.initiation_examples.append(state)
             self.initiation_labels.append(label)
+
+        def addInitiationExamples(self, states, label):
+            self.initiation_examples += states
+            self.initiation_labels += [label]*len(states)
 
         def inInitiationSet(self, state):
             return self.initiation_classifier.predict([state])[0]
@@ -203,6 +226,7 @@ def main():
 
     # initialize session
     opt = Skill(0)
+    target_positions = []
 
     #####################################################################################################
     ## Training
@@ -211,7 +235,10 @@ def main():
     for ep in range(num_episodes):
 
         total_reward = 0
+        raw_reward = 0
         steps_in_ep = 0
+
+        ep_experience = []
 
         observation = env.reset()
 
@@ -219,7 +246,7 @@ def main():
 
             current_position = observation[:2]
 
-            # choose action according to epsilon-greedy policy wrt Q
+            # TODO: Choose an action, option, or random
             if np.random.random() < opt.epsilon:
                 action = np.random.randint(n_actions)
             else:
@@ -230,12 +257,15 @@ def main():
             next_observation, reward, done, _info = env.step(action)
             if args.visualize:
                 env.render()
-            total_reward += reward
 
-            # TODO: Only if it's in initiation set..
+            opt_reward = reward + 0
+            total_reward += opt_reward
+            raw_reward += reward
+
             # add this to experience replay buffer
-            opt.experience.append((observation, action, reward, next_observation, 0.0 if done else 1.0))
-            
+            opt.experience.append((observation, action, opt_reward, next_observation, 0.0 if done else 1.0))
+            ep_experience.append((observation, action, opt_reward, next_observation, 0.0 if done else 1.0))
+
             # update the slow target's weights to match the latest q network if it's time to do so
             if opt.total_steps%update_slow_target_every == 0:
                 _ = opt.sess.run(update_slow_target_op)
@@ -247,7 +277,7 @@ def main():
                 minibatch = random.sample(opt.experience, minibatch_size)
 
                 # do a train_op with all the inputs required
-                
+
                 _ = opt.sess.run(train_op,
                     feed_dict = {state_ph: getMinibatchElem(minibatch, 0), action_ph: getMinibatchElem(minibatch, 1), \
                         reward_ph: getMinibatchElem(minibatch, 2), next_state_ph: getMinibatchElem(minibatch, 3), \
@@ -263,10 +293,29 @@ def main():
                 _ = opt.sess.run(episode_inc_op)
                 break
 
-        opt.writeReward(total_reward, ep)
+        # If ended in the target zone (between the two flags) and done == True
+        if -0.2 < ep_experience[-1][0][0] < 0.2 and not ep_experience[-1][-1]:
+            # Last max_steps_opt experiences before reaching the goal
+            initiation_experiences = ep_experience[-max_steps_opt:]
+            # List of (x, y) states for experiences more than 100 time steps away from the goal
+            positive_examples = statesFromExperiences(ep_experience[-max_steps_opt:])
+            negative_examples = statesFromExperiences(ep_experience[:-max_steps_opt])
+            opt.addInitiationExamples(positive_examples, 1)
+            opt.addInitiationExamples(negative_examples, 0)
+            opt.retrainInitationClassifier()
+        else:
+            # The goal wasn't reached, so all episodes aren't part of the initiation set
+            # However, negative would then greatly outnumber positive..
+            '''
+            negative_examples = statesFromExperiences(ep_experience)
+            opt.addInitiationExamples(negative_examples, 0)
+            opt.retrainInitationClassifier()
+            '''
+
+        opt.writeReward(raw_reward, ep)
 
         print('Episode %2i, Reward: %7.3f, Steps: %i, Next eps: %7.3f, Minutes: %7.3f'%\
-            (ep,total_reward,steps_in_ep, opt.epsilon, (time.time() - start_time)/60))
+            (ep, raw_reward, steps_in_ep, opt.epsilon, (time.time() - start_time)/60))
 
     env.close()
 
