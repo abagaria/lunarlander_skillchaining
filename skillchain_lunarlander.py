@@ -8,6 +8,7 @@ import gym
 from gym import wrappers
 import tensorflow as tf
 from sklearn import svm
+import matplotlib.pyplot as plt
 
 import time
 import datetime
@@ -25,6 +26,42 @@ def getMinibatchElem(minibatch, i):
 
 def statesFromExperiences(experiences):
     return [example[0][:2] for example in experiences]
+
+def make_meshgrid(x, y, h=.02):
+    """Create a mesh of points to plot in
+
+    Parameters
+    ----------
+    x: data to base x-axis meshgrid on
+    y: data to base y-axis meshgrid on
+    h: stepsize for meshgrid, optional
+
+    Returns
+    -------
+    xx, yy : ndarray
+    """
+    x_min, x_max = x.min() - 1, x.max() + 1
+    y_min, y_max = y.min() - 1, y.max() + 1
+    xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
+                         np.arange(y_min, y_max, h))
+    return xx, yy
+
+
+def plot_contours(ax, clf, xx, yy, **params):
+    """Plot the decision boundaries for a classifier.
+
+    Parameters
+    ----------
+    ax: matplotlib axes object
+    clf: a classifier
+    xx: meshgrid ndarray
+    yy: meshgrid ndarray
+    params: dictionary of params to pass to contourf, optional
+    """
+    Z = clf.predict(np.c_[xx.ravel(), yy.ravel()])
+    Z = Z.reshape(xx.shape)
+    out = ax.contourf(xx, yy, Z, **params)
+    return out
 
 def main():
 
@@ -64,7 +101,7 @@ def main():
     # Stop adding options after this timestep
     add_opt_cutoff = num_episodes/2
     # Maximum number of steps in one option
-    max_steps_opt = max_steps_ep/10
+    max_steps_opt = max_steps_ep/40
     # Option completion reward
     opt_r = 35
 
@@ -158,7 +195,7 @@ def main():
     ## Tensorflow
     ####################################################################################################################
 
-    board_name = datetime.datetime.fromtimestamp(time.time()).strftime('board_%Y_%m_%d_%H_%M_%S')
+    timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H_%M_%S')
     class Option:
         def __init__(self, n):
             self.n = n
@@ -166,8 +203,13 @@ def main():
             self.sess = tf.Session()
             self.sess.run(tf.global_variables_initializer())
 
-            self.writer = tf.summary.FileWriter(board_name + '_' + str(n))
+            self.writer = tf.summary.FileWriter("board_" + timestamp + '_' + str(n))
             self.writer.add_graph(self.sess.graph)
+
+            # TODO: Make timestamp/option, force
+            self.directory = timestamp + '/' + str(self.n)
+            if not os.path.exists(self.directory):
+                os.makedirs(self.directory)
 
             self.initiation_examples = []
             self.initiation_labels = []
@@ -186,17 +228,38 @@ def main():
             summary_str = self.sess.run(tf.summary.merge_all())
             self.writer.add_summary(summary_str, ep)
 
-        def retrainInitationClassifier(self):
-            if len([x for x in self.initiation_labels if x == 1]) != 0 and \
-                len([x for x in self.initiation_labels if x == 0]) != 0:
+        def retrainInitationClassifier(self, ep):
+            self.num_pos_examples = len([x for x in self.initiation_labels if x == 1])
+            self.num_neg_examples = len([x for x in self.initiation_labels if x == 0])
+            if self.num_pos_examples != 0 and self.num_neg_examples != 0:
                 print "Training classifier with", len([x for x in self.initiation_labels if x == 1]), \
                     "positive examples and", len([x for x in self.initiation_labels if x == 0]), "negative examples." 
                 class_start_time = time.time()
                 self.initiation_classifier.fit(self.initiation_examples, self.initiation_labels)
                 print "Retrained option", self.n, "classifier in", (time.time() - class_start_time), "seconds."
+                self.showInitiationPlot(ep)
             else:
                 print "Not training classifier,", len([x for x in self.initiation_labels if x == 1]), \
                     "positive examples and", len([x for x in self.initiation_labels if x == 0]), "negative examples."
+
+        def showInitiationPlot(self, ep):
+            X0, X1 = np.array(self.initiation_examples)[:, 0], np.array(self.initiation_examples)[:, 1]
+            # TODO: Determine bounds so plot matches with example
+            xx, yy = make_meshgrid(X0, X1)
+            
+            fig, sub = plt.subplots(1, 1)
+
+            labels = [str(self.num_pos_examples) + " positive examples", \
+                str(self.num_neg_examples) + " negative examples"]
+            plot_contours(sub, self.initiation_classifier, xx, yy, cmap=plt.cm.coolwarm, alpha=0.8)
+            sub.scatter(X0, X1, c=self.initiation_labels, cmap=plt.cm.coolwarm, s=20, edgecolors='k')
+            sub.set_xlim(xx.min(), xx.max())
+            sub.set_ylim(yy.min(), yy.max())
+            sub.set_xticks(())
+            sub.set_yticks(())
+            sub.set_title("Option " + str(self.n) + " at episode " + str(ep))
+            sub.legend(labels=labels)
+            plt.savefig(self.directory + '/' + str(ep) + '.png')
 
         def addInitiationExample(self, state, label):
             self.initiation_examples.append(state)
@@ -302,7 +365,7 @@ def main():
             negative_examples = statesFromExperiences(ep_experience[:-max_steps_opt])
             opt.addInitiationExamples(positive_examples, 1)
             opt.addInitiationExamples(negative_examples, 0)
-            opt.retrainInitationClassifier()
+            opt.retrainInitationClassifier(ep)
         else:
             # The goal wasn't reached, so all episodes aren't part of the initiation set
             # However, negative would then greatly outnumber positive..
