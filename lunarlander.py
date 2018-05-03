@@ -240,6 +240,7 @@ def main():
                 q_s = sess.run(q_action_values, feed_dict = {state_ph: observation[None], is_training_ph: False})
                 action = np.argmax(q_s)
                 next_observation, reward, done, _info = env.step(action)
+                observation = next_observation
                 env.render()
                 if done:
                     break

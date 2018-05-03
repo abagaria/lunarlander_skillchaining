@@ -98,8 +98,8 @@ def main():
     n_actions = env.action_space.n
 
     # set seeds to 0
-    env.seed(0)
-    np.random.seed(0)
+    #env.seed(0)
+    #np.random.seed(0)
 
     ####################################################################################################################
     ## Tensorflow
@@ -222,27 +222,30 @@ def main():
                 self.initiation_classifier.fit(self.initiation_examples, self.initiation_labels)
                 print "Retrained option", self.n, "classifier in", (time.time() - class_start_time), "seconds."
                 self.saveInitiationPlot(ep)
-            else:
-                print "Not training classifier,", len([x for x in self.initiation_labels if x == 1]), \
-                    "positive examples and", len([x for x in self.initiation_labels if x == 0]), "negative examples."
+            #else:
+                #print "Not training classifier,", len([x for x in self.initiation_labels if x == 1]), \
+                #    "positive examples and", len([x for x in self.initiation_labels if x == 0]), "negative examples."
 
         def saveInitiationPlot(self, ep):
+            # http://scikit-learn.org/stable/auto_examples/svm/plot_iris.html
             X0, X1 = np.array(self.initiation_examples)[:, 0], np.array(self.initiation_examples)[:, 1]
             # TODO: Determine bounds so plot matches with example
             xx, yy = make_meshgrid(-1, 1, -1./3, 1)
+            labels = [str(self.num_pos_examples) + " positive examples", \
+                str(self.num_neg_examples) + " negative examples"]
             
             fig, sub = plt.subplots(1, 1)
 
-            labels = [str(self.num_pos_examples) + " positive examples", \
-                str(self.num_neg_examples) + " negative examples"]
             plot_contours(sub, self.initiation_classifier, xx, yy, cmap=plt.cm.coolwarm, alpha=0.8)
-            sub.scatter(X0, X1, c=self.initiation_labels, cmap=plt.cm.coolwarm, s=20, edgecolors='k')
+            sub.scatter(X0, X1, c=self.initiation_labels, cmap=plt.cm.coolwarm, s=20, edgecolors='k', labels=labels)
             sub.set_xlim(xx.min(), xx.max())
             sub.set_ylim(yy.min(), yy.max())
             sub.set_xticks(())
             sub.set_yticks(())
             sub.set_title("Option " + str(self.n) + " at episode " + str(ep))
-            sub.legend(labels=labels)
+            
+            print labels
+            sub.legend()
             plt.plot([-0.2, 0.2], [0, 0], 'k-')
             plt.savefig(self.directory + '/' + str(ep) + '.png')
 
