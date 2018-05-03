@@ -27,25 +27,9 @@ def getMinibatchElem(minibatch, i):
 def statesFromExperiences(experiences):
     return [example[0][:2] for example in experiences]
 
-def make_meshgrid(x, y, h=.02):
-    """Create a mesh of points to plot in
-
-    Parameters
-    ----------
-    x: data to base x-axis meshgrid on
-    y: data to base y-axis meshgrid on
-    h: stepsize for meshgrid, optional
-
-    Returns
-    -------
-    xx, yy : ndarray
-    """
-    x_min, x_max = x.min() - 1, x.max() + 1
-    y_min, y_max = y.min() - 1, y.max() + 1
-    xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
-                         np.arange(y_min, y_max, h))
+def make_meshgrid(x_min, x_max, y_min, y_max, h=.02):
+    xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
     return xx, yy
-
 
 def plot_contours(ax, clf, xx, yy, **params):
     """Plot the decision boundaries for a classifier.
@@ -68,7 +52,7 @@ def main():
     parser = argparse.ArgumentParser(description = "Lunar Lander")
     parser.add_argument('--visualize', dest='visualize', action='store_true')
     parser.add_argument('--no-visualize', dest='visualize', action='store_false')
-    parser.set_defaults(feature=False)
+    parser.set_defaults(visualize=False)
     args = parser.parse_args()
 
     # DQN Params
@@ -237,15 +221,15 @@ def main():
                 class_start_time = time.time()
                 self.initiation_classifier.fit(self.initiation_examples, self.initiation_labels)
                 print "Retrained option", self.n, "classifier in", (time.time() - class_start_time), "seconds."
-                self.showInitiationPlot(ep)
+                self.saveInitiationPlot(ep)
             else:
                 print "Not training classifier,", len([x for x in self.initiation_labels if x == 1]), \
                     "positive examples and", len([x for x in self.initiation_labels if x == 0]), "negative examples."
 
-        def showInitiationPlot(self, ep):
+        def saveInitiationPlot(self, ep):
             X0, X1 = np.array(self.initiation_examples)[:, 0], np.array(self.initiation_examples)[:, 1]
             # TODO: Determine bounds so plot matches with example
-            xx, yy = make_meshgrid(X0, X1)
+            xx, yy = make_meshgrid(-1, 1, -1./3, 1)
             
             fig, sub = plt.subplots(1, 1)
 
@@ -259,6 +243,7 @@ def main():
             sub.set_yticks(())
             sub.set_title("Option " + str(self.n) + " at episode " + str(ep))
             sub.legend(labels=labels)
+            plt.plot([-0.2, 0.2], [0, 0], 'k-')
             plt.savefig(self.directory + '/' + str(ep) + '.png')
 
         def addInitiationExample(self, state, label):

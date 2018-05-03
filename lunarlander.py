@@ -23,7 +23,8 @@ def main():
     parser = argparse.ArgumentParser(description = "Lunar Lander")
     parser.add_argument('--visualize', dest='visualize', action='store_true')
     parser.add_argument('--no-visualize', dest='visualize', action='store_false')
-    parser.set_defaults(feature=False)
+    parser.set_defaults(visualize=False)
+    parser.add_argument("--model", type=str, default="")
     args = parser.parse_args()
 
     # DQN Params
@@ -137,91 +138,111 @@ def main():
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
 
-    #####################################################################################################
-    ## Training
+    
 
-    total_steps = 0
-    experience = deque(maxlen=replay_memory_capacity)
-
-    epsilon = epsilon_start
-    epsilon_linear_step = (epsilon_start-epsilon_end)/epsilon_decay_length
-
-    board_name = datetime.datetime.fromtimestamp(time.time()).strftime('board_%Y_%m_%d_%H_%M_%S')
-    writer = tf.summary.FileWriter(board_name)
-    writer.add_graph(sess.graph)
+    timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H_%M_%S')
+    board_name = "board_" + timestamp
+    saver = tf.train.Saver()
     start_time = time.time()
-    for ep in range(num_episodes):
+    if args.model == '':
+        #####################################################################################################
+        ## Training
+        print "Training a new model."
+        writer = tf.summary.FileWriter(board_name)
+        writer.add_graph(sess.graph)
 
-        total_reward = 0
-        steps_in_ep = 0
+        total_steps = 0
+        experience = deque(maxlen=replay_memory_capacity)
 
-        observation = env.reset()
+        epsilon = epsilon_start
+        epsilon_linear_step = (epsilon_start-epsilon_end)/epsilon_decay_length
+        for ep in range(num_episodes):
 
-        for t in range(max_steps_ep):
+            total_reward = 0
+            steps_in_ep = 0
 
-            # choose action according to epsilon-greedy policy wrt Q
-            if np.random.random() < epsilon:
-                action = np.random.randint(n_actions)
-            else:
-                q_s = sess.run(q_action_values,
-                    feed_dict = {state_ph: observation[None], is_training_ph: False})
+            observation = env.reset()
+
+            for t in range(max_steps_ep):
+
+                # choose action according to epsilon-greedy policy wrt Q
+                if np.random.random() < epsilon:
+                    action = np.random.randint(n_actions)
+                else:
+                    q_s = sess.run(q_action_values,
+                        feed_dict = {state_ph: observation[None], is_training_ph: False})
+                    action = np.argmax(q_s)
+
+                # take step
+                next_observation, reward, done, _info = env.step(action)
+                if args.visualize:
+                    env.render()
+                total_reward += reward
+
+                # add this to experience replay buffer
+                experience.append((observation, action, reward, next_observation, 0.0 if done else 1.0))
+
+                # update the slow target's weights to match the latest q network if it's time to do so
+                if total_steps%update_slow_target_every == 0:
+                    _ = sess.run(update_slow_target_op)
+
+                # update network weights to fit a minibatch of experience
+                if total_steps%train_every == 0 and len(experience) >= minibatch_size:
+
+                    # grab N (s,a,r,s') tuples from experience
+                    minibatch = random.sample(experience, minibatch_size)
+
+                    # do a train_op with all the inputs required
+                    _ = sess.run(train_op,
+                        feed_dict = {
+                            state_ph: np.asarray([elem[0] for elem in minibatch]),
+                            action_ph: np.asarray([elem[1] for elem in minibatch]),
+                            reward_ph: np.asarray([elem[2] for elem in minibatch]),
+                            next_state_ph: np.asarray([elem[3] for elem in minibatch]),
+                            is_not_terminal_ph: np.asarray([elem[4] for elem in minibatch]),
+                            is_training_ph: True})
+
+                observation = next_observation
+                total_steps += 1
+                steps_in_ep += 1
+
+                # linearly decay epsilon from epsilon_start to epsilon_end over epsilon_decay_length steps
+                if total_steps < epsilon_decay_length:
+                    epsilon -= epsilon_linear_step
+                # then exponentially decay it every episode
+                elif done:
+                    epsilon *= epsilon_decay_exp
+
+                if total_steps == epsilon_decay_length:
+                    print('--------------------------------MOVING TO EXPONENTIAL EPSILON DECAY-----------------------------------------')
+
+                if done:
+                    # Increment episode counter
+                    _ = sess.run(episode_inc_op)
+                    break
+
+            sess.run(update_ep_reward, feed_dict={r_summary_placeholder: total_reward})
+            summary_str = sess.run(tf.summary.merge_all())
+            writer.add_summary(summary_str, ep)
+
+            print('Episode %2i, Reward: %7.3f, Steps: %i, Next eps: %7.3f, Minutes: %7.3f'%\
+                (ep,total_reward,steps_in_ep, epsilon, (time.time() - start_time)/60))
+
+        saver.save(sess, os.getcwd() + '/' + timestamp + ".ckpt")
+    else:
+        print "Loading trained model from", args.model
+        saver.restore(sess, os.getcwd() + '/' + args.model)
+        attempts = 10
+        print "Load successful, playing for", attempts, "games."
+        for _ in range(attempts):
+            observation = env.reset()
+            for t in range(max_steps_ep):
+                q_s = sess.run(q_action_values, feed_dict = {state_ph: observation[None], is_training_ph: False})
                 action = np.argmax(q_s)
-
-            # take step
-            next_observation, reward, done, _info = env.step(action)
-            if args.visualize:
+                next_observation, reward, done, _info = env.step(action)
                 env.render()
-            total_reward += reward
-
-            # add this to experience replay buffer
-            experience.append((observation, action, reward, next_observation, 0.0 if done else 1.0))
-
-            # update the slow target's weights to match the latest q network if it's time to do so
-            if total_steps%update_slow_target_every == 0:
-                _ = sess.run(update_slow_target_op)
-
-            # update network weights to fit a minibatch of experience
-            if total_steps%train_every == 0 and len(experience) >= minibatch_size:
-
-                # grab N (s,a,r,s') tuples from experience
-                minibatch = random.sample(experience, minibatch_size)
-
-                # do a train_op with all the inputs required
-                _ = sess.run(train_op,
-                    feed_dict = {
-                        state_ph: np.asarray([elem[0] for elem in minibatch]),
-                        action_ph: np.asarray([elem[1] for elem in minibatch]),
-                        reward_ph: np.asarray([elem[2] for elem in minibatch]),
-                        next_state_ph: np.asarray([elem[3] for elem in minibatch]),
-                        is_not_terminal_ph: np.asarray([elem[4] for elem in minibatch]),
-                        is_training_ph: True})
-
-            observation = next_observation
-            total_steps += 1
-            steps_in_ep += 1
-
-            # linearly decay epsilon from epsilon_start to epsilon_end over epsilon_decay_length steps
-            if total_steps < epsilon_decay_length:
-                epsilon -= epsilon_linear_step
-            # then exponentially decay it every episode
-            elif done:
-                epsilon *= epsilon_decay_exp
-
-            if total_steps == epsilon_decay_length:
-                print('--------------------------------MOVING TO EXPONENTIAL EPSILON DECAY-----------------------------------------')
-
-            if done:
-                # Increment episode counter
-                _ = sess.run(episode_inc_op)
-                break
-
-        sess.run(update_ep_reward, feed_dict={r_summary_placeholder: total_reward})
-        summary_str = sess.run(tf.summary.merge_all())
-        writer.add_summary(summary_str, ep)
-
-        print('Episode %2i, Reward: %7.3f, Steps: %i, Next eps: %7.3f, Minutes: %7.3f'%\
-            (ep,total_reward,steps_in_ep, epsilon, (time.time() - start_time)/60))
-
+                if done:
+                    break
     env.close()
 
 if __name__ == '__main__':

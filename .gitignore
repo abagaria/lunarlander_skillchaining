@@ -1,2 +1,4 @@
 board*
 2018*
+*.ckpt
+checkpoint
