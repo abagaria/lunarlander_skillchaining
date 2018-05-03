@@ -9,6 +9,7 @@ from gym import wrappers
 import tensorflow as tf
 from sklearn import svm
 import matplotlib.pyplot as plt
+from mlxtend.plotting import plot_decision_regions
 
 import time
 import datetime
@@ -236,8 +237,9 @@ def main():
             
             fig, sub = plt.subplots(1, 1)
 
-            plot_contours(sub, self.initiation_classifier, xx, yy, cmap=plt.cm.coolwarm, alpha=0.8)
-            sub.scatter(X0, X1, c=self.initiation_labels, cmap=plt.cm.coolwarm, s=20, edgecolors='k', labels=labels)
+            plot_decision_regions(X=np.array(self.initiation_examples), y=np.array(self.initiation_labels), clf=self.initiation_classifier, legend=1)
+            #plot_contours(sub, self.initiation_classifier, xx, yy, cmap=plt.cm.coolwarm, alpha=0.8)
+            #sub.scatter(X0, X1, c=self.initiation_labels, cmap=plt.cm.coolwarm, s=20, edgecolors='k', labels=labels)
             sub.set_xlim(xx.min(), xx.max())
             sub.set_ylim(yy.min(), yy.max())
             sub.set_xticks(())
@@ -245,7 +247,10 @@ def main():
             sub.set_title("Option " + str(self.n) + " at episode " + str(ep))
             
             print labels
-            sub.legend()
+            L = sub.legend(bbox_to_anchor=(0.5, -0.05), loc='upper center', ncol=2, mode="expand", borderaxespad=0.)
+            L.get_texts()[0].set_text(labels[0])
+            L.get_texts()[1].set_text(labels[1])
+
             plt.plot([-0.2, 0.2], [0, 0], 'k-')
             plt.savefig(self.directory + '/' + str(ep) + '.png')
 
