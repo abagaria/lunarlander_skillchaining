@@ -237,6 +237,7 @@ def main():
         for _ in range(attempts):
             observation = env.reset()
             total_reward = 0
+            steps = 0
             for t in range(max_steps_ep):
                 q_s = sess.run(q_action_values, feed_dict = {state_ph: observation[None], is_training_ph: False})
                 action = np.argmax(q_s)
@@ -244,9 +245,10 @@ def main():
                 observation = next_observation
                 total_reward += reward
                 env.render()
-                print "Reward:", total_reward
+                steps += 1
                 if done:
                     break
+            print "Reward:", total_reward, "in", steps, "steps."
     env.close()
 
 if __name__ == '__main__':

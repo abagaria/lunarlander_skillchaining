@@ -1,0 +1,2 @@
+#!/bin/bash
+python lunarlander.py --model trained_dqn/2018_05_03_14_56_20.ckpt --visualize
