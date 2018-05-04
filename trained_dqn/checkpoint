@@ -1,0 +1,2 @@
+model_checkpoint_path: "/gpfs/main/home/mcorsaro/lunarlander_skillchaining/2018_05_03_14_56_20.ckpt"
+all_model_checkpoint_paths: "/gpfs/main/home/mcorsaro/lunarlander_skillchaining/2018_05_03_14_56_20.ckpt"
