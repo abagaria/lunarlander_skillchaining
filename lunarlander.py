@@ -236,12 +236,15 @@ def main():
         print "Load successful, playing for", attempts, "games."
         for _ in range(attempts):
             observation = env.reset()
+            total_reward = 0
             for t in range(max_steps_ep):
                 q_s = sess.run(q_action_values, feed_dict = {state_ph: observation[None], is_training_ph: False})
                 action = np.argmax(q_s)
                 next_observation, reward, done, _info = env.step(action)
                 observation = next_observation
+                total_reward += reward
                 env.render()
+                print "Reward:", total_reward
                 if done:
                     break
     env.close()
