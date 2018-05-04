@@ -24,6 +24,9 @@
 
 starts taking 1000 steps after moving to exponential decay
 
+# TODO:
+ - Limit number of bad steps in trajectory
+
 https://www2.cs.duke.edu/research/AI/LSPI/
 
 change point detection after solving mdp - state trajectory through time, fit model to it

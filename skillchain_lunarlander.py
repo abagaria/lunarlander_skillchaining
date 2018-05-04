@@ -21,6 +21,13 @@ from anytree import NodeMixin, RenderTree
 
 import argparse
 
+def atGoal(experience):
+    state = experience[0]
+    x = state[0]
+    y = state[1]
+    not_done = experience[-1]
+    return -0.2 < x < 0.2 and -0.1 < y < 0.1 and not not_done
+
 def getMinibatchElem(minibatch, i):
     return np.asarray([elem[i] for elem in minibatch])
 
@@ -85,9 +92,12 @@ def main():
     # Stop adding options after this timestep
     add_opt_cutoff = num_episodes/2
     # Maximum number of steps in one option
-    max_steps_opt = max_steps_ep/40
+    max_steps_opt = 25
+    max_neg_traj = max_steps_opt*10
     # Option completion reward
     opt_r = 35
+    # How long to gather initiation classifier data for
+    num_ep_init_class = 50
 
     # How long to wait before adding new option?
     steps_per_opt = num_episodes/10
@@ -190,7 +200,6 @@ def main():
             self.writer = tf.summary.FileWriter("board_" + timestamp + '_' + str(n))
             self.writer.add_graph(self.sess.graph)
 
-            # TODO: Make timestamp/option, force
             self.directory = timestamp + '/' + str(self.n)
             if not os.path.exists(self.directory):
                 os.makedirs(self.directory)
@@ -206,6 +215,7 @@ def main():
             self.epsilon = epsilon_start
             self.epsilon_linear_step = (epsilon_start-epsilon_end)/epsilon_decay_length
             self.total_steps = 0
+            self.total_eps = 0
 
         def writeReward(self, r, ep):
             self.sess.run(update_ep_reward, feed_dict={r_summary_placeholder: r})
@@ -229,7 +239,6 @@ def main():
         def saveInitiationPlot(self, ep):
             # http://scikit-learn.org/stable/auto_examples/svm/plot_iris.html
             X0, X1 = np.array(self.initiation_examples)[:, 0], np.array(self.initiation_examples)[:, 1]
-            # TODO: Determine bounds so plot matches with example
             xx, yy = make_meshgrid(-1, 1, -1./3, 1)
             labels = [str(self.num_pos_examples) + " positive examples", \
                 str(self.num_neg_examples) + " negative examples"]
@@ -253,6 +262,7 @@ def main():
             self.initiation_labels.append(label)
 
         def addInitiationExamples(self, states, label):
+            
             self.initiation_examples += states
             self.initiation_labels += [label]*len(states)
 
@@ -266,6 +276,26 @@ def main():
             # then exponentially decay it every episode
             elif done:
                 self.epsilon *= epsilon_decay_exp
+
+        def updateDQN(self, step_experience):
+            self.experience.append(step_experience)
+
+            # update the slow target's weights to match the latest q network if it's time to do so
+            if self.total_steps%update_slow_target_every == 0:
+                _ = self.sess.run(update_slow_target_op)
+
+            # update network weights to fit a minibatch of experience
+            if self.total_steps%train_every == 0 and len(self.experience) >= minibatch_size:
+
+                # grab N (s,a,r,s') tuples from experience
+                minibatch = random.sample(self.experience, minibatch_size)
+
+                # do a train_op with all the inputs required
+
+                _ = self.sess.run(train_op,
+                    feed_dict = {state_ph: getMinibatchElem(minibatch, 0), action_ph: getMinibatchElem(minibatch, 1), \
+                        reward_ph: getMinibatchElem(minibatch, 2), next_state_ph: getMinibatchElem(minibatch, 3), \
+                        is_not_terminal_ph: getMinibatchElem(minibatch, 4), is_training_ph: True})
 
     # http://anytree.readthedocs.io/en/latest/api/anytree.node.html#anytree.node.nodemixin.NodeMixin
     class Skill(Option, NodeMixin):
@@ -288,7 +318,7 @@ def main():
         raw_reward = 0
         steps_in_ep = 0
 
-        ep_experience = []
+        epi_experience = []
 
         observation = env.reset()
 
@@ -312,26 +342,11 @@ def main():
             total_reward += opt_reward
             raw_reward += reward
 
+            step_experience = (observation, action, opt_reward, next_observation, 0.0 if done else 1.0)
+            opt.updateDQN(step_experience)
+            epi_experience.append(step_experience)
             # add this to experience replay buffer
-            opt.experience.append((observation, action, opt_reward, next_observation, 0.0 if done else 1.0))
-            ep_experience.append((observation, action, opt_reward, next_observation, 0.0 if done else 1.0))
 
-            # update the slow target's weights to match the latest q network if it's time to do so
-            if opt.total_steps%update_slow_target_every == 0:
-                _ = opt.sess.run(update_slow_target_op)
-
-            # update network weights to fit a minibatch of experience
-            if opt.total_steps%train_every == 0 and len(opt.experience) >= minibatch_size:
-
-                # grab N (s,a,r,s') tuples from experience
-                minibatch = random.sample(opt.experience, minibatch_size)
-
-                # do a train_op with all the inputs required
-
-                _ = opt.sess.run(train_op,
-                    feed_dict = {state_ph: getMinibatchElem(minibatch, 0), action_ph: getMinibatchElem(minibatch, 1), \
-                        reward_ph: getMinibatchElem(minibatch, 2), next_state_ph: getMinibatchElem(minibatch, 3), \
-                        is_not_terminal_ph: getMinibatchElem(minibatch, 4), is_training_ph: True})
             observation = next_observation
             opt.total_steps += 1
             steps_in_ep += 1
@@ -343,24 +358,19 @@ def main():
                 _ = opt.sess.run(episode_inc_op)
                 break
 
-        # If ended in the target zone (between the two flags) and done == True
-        if -0.2 < ep_experience[-1][0][0] < 0.2 and not ep_experience[-1][-1]:
-            # Last max_steps_opt experiences before reaching the goal
-            initiation_experiences = ep_experience[-max_steps_opt:]
-            # List of (x, y) states for experiences more than 100 time steps away from the goal
-            positive_examples = statesFromExperiences(ep_experience[-max_steps_opt:])
-            negative_examples = statesFromExperiences(ep_experience[:-max_steps_opt])
-            opt.addInitiationExamples(positive_examples, 1)
-            opt.addInitiationExamples(negative_examples, 0)
-            opt.retrainInitationClassifier(ep)
-        else:
-            # The goal wasn't reached, so all episodes aren't part of the initiation set
-            # However, negative would then greatly outnumber positive..
-            '''
-            negative_examples = statesFromExperiences(ep_experience)
-            opt.addInitiationExamples(negative_examples, 0)
-            opt.retrainInitationClassifier()
-            '''
+        # TODO: Make the body a function
+        # If landed in the target zone (between the two flags)
+        if atGoal(epi_experience[-1]):
+            # List of (x, y) states for experiences less than max_steps_opt time steps away from the goal
+            positive_examples = statesFromExperiences(epi_experience[-max_steps_opt:])
+            # Only use the last max_neg_traj negative examples, not the hovering at the beginning
+            negative_examples = statesFromExperiences(epi_experience[-max_steps_opt-max_neg_traj:-max_steps_opt])
+            if len(opt.initiation_examples) == 0 or not opt.inInitiationSet(negative_examples[0]):
+                opt.addInitiationExamples(positive_examples, 1)
+                opt.addInitiationExamples(negative_examples, 0)
+                opt.retrainInitationClassifier(ep)
+            else:
+                print "Trajectory began at state", negative_examples[0], "which is in the initiation set. Skipping."
 
         opt.writeReward(raw_reward, ep)
 
