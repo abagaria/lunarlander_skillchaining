@@ -304,9 +304,16 @@ def main():
             self.parent = parent
             self.name = str(n)
 
+        def inTerminationSet(self, experience):
+            if self.n == 0:
+                return atGoal(experience)
+            else:
+                return self.parent.inInitiationSet(experience[0])
+
     # initialize session
-    opt = Skill(0)
-    target_positions = []
+    skills = []
+    goalOpt = Skill(len(skills))
+    skills.append(goalOpt)
 
     #####################################################################################################
     ## Training
@@ -324,6 +331,7 @@ def main():
 
         for t in range(max_steps_ep):
 
+            opt = skills[0]
             current_position = observation[:2]
 
             # TODO: Choose an action, option, or random
@@ -358,9 +366,10 @@ def main():
                 _ = opt.sess.run(episode_inc_op)
                 break
 
+        opt.total_eps += 1
         # TODO: Make the body a function
         # If landed in the target zone (between the two flags)
-        if atGoal(epi_experience[-1]):
+        if opt.total_eps <= num_ep_init_class and opt.inTerminationSet(epi_experience[-1]):
             # List of (x, y) states for experiences less than max_steps_opt time steps away from the goal
             positive_examples = statesFromExperiences(epi_experience[-max_steps_opt:])
             # Only use the last max_neg_traj negative examples, not the hovering at the beginning
