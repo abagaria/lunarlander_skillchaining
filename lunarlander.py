@@ -55,10 +55,6 @@ def main():
     state_dim = np.prod(np.array(env.observation_space.shape))
     n_actions = env.action_space.n
 
-    # set seeds to 0
-    env.seed(0)
-    np.random.seed(0)
-
     ####################################################################################################################
     ## Tensorflow
 

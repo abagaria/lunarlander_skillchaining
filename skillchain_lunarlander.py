@@ -308,7 +308,7 @@ def main():
             if self.n == 0:
                 return atGoal(experience)
             else:
-                return self.parent.inInitiationSet(experience[0])
+                return self.parent.inInitiationSet(experience[0][:2])
 
     # initialize session
     skills = []
