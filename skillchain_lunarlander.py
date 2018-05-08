@@ -21,6 +21,48 @@ from anytree import NodeMixin, RenderTree
 
 import argparse
 
+# TODO: Capitalize
+# DQN Params
+gamma = 0.99
+# Hidden layer sizes
+h1 = 200
+h2 = 200
+h3 = 200
+lr = 5e-5
+# decay per episode
+lr_decay = 1
+l2_reg = 1e-6
+dropout = 0
+num_episodes = 1000
+# gym cuts off after 1000, anyway
+max_steps_ep = 1000
+update_slow_target_every = 100
+train_every = 1
+replay_memory_capacity = int(1e6)
+minibatch_size = 1024
+#TODO: Get epsilon close to zero by ep 50
+epsilon_start = 1.0
+epsilon_end = 0.05
+epsilon_decay_length = 10000
+epsilon_decay_exp = 0.98
+
+# Skill chain params
+# don't execute after creating, off-policy learning
+gestation = 10
+# Stop adding options after this timestep
+add_opt_cutoff = num_episodes/2
+# Maximum number of steps in one option
+max_steps_opt = 25
+max_neg_traj = max_steps_opt*10
+# Option completion reward
+opt_r = 35
+# How long to gather initiation classifier data for
+num_ep_init_class = 50
+max_branching_factor = 2
+
+# How long to wait before adding new option?
+steps_per_opt = num_episodes/10
+
 def atGoal(state, done):
     # If landed in the target zone (between the two flags)
     x = state[0]
@@ -53,13 +95,13 @@ def plot_contours(ax, clf, xx, yy, **params):
     out = ax.contourf(xx, yy, Z, **params)
     return out
 
-def findOptForState(position, root_option):
+def findOptForState(position, root_option, ep):
     # BFS Search
     queue = [root_option]
     while len(queue) != 0:
         opt = queue.pop(0)
         # If the state is in the initation set and the initiation set classifier has been fully trained
-        if opt.inInitiationSet(position) and opt.total_eps >= num_ep_init_class:
+        if opt.inInitiationSet(position) and ep - opt.start_ep > num_ep_init_class:
             return opt
         else:
             queue += opt.children
@@ -72,47 +114,6 @@ def main():
     parser.add_argument('--no-visualize', dest='visualize', action='store_false')
     parser.set_defaults(visualize=False)
     args = parser.parse_args()
-
-    # DQN Params
-    gamma = 0.99
-    # Hidden layer sizes
-    h1 = 200
-    h2 = 200
-    h3 = 200
-    lr = 5e-5
-    # decay per episode
-    lr_decay = 1
-    l2_reg = 1e-6
-    dropout = 0
-    num_episodes = 1000
-    # gym cuts off after 1000, anyway
-    max_steps_ep = 1000
-    update_slow_target_every = 100
-    train_every = 1
-    replay_memory_capacity = int(1e6)
-    minibatch_size = 1024
-    #TODO: Get epsilon close to zero by ep 50
-    epsilon_start = 1.0
-    epsilon_end = 0.05
-    epsilon_decay_length = 10000
-    epsilon_decay_exp = 0.98
-
-    # Skill chain params
-    # don't execute after creating, off-policy learning
-    gestation = 10
-    # Stop adding options after this timestep
-    add_opt_cutoff = num_episodes/2
-    # Maximum number of steps in one option
-    max_steps_opt = 25
-    max_neg_traj = max_steps_opt*10
-    # Option completion reward
-    opt_r = 35
-    # How long to gather initiation classifier data for
-    num_ep_init_class = 50
-    max_branching_factor = 2
-
-    # How long to wait before adding new option?
-    steps_per_opt = num_episodes/10
 
     # game parameters
     env = gym.make("LunarLander-v2")
@@ -203,8 +204,9 @@ def main():
 
     timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H_%M_%S')
     class Option:
-        def __init__(self, n):
+        def __init__(self, n, start_ep):
             self.n = n
+            self.start_ep = start_ep
 
             self.sess = tf.Session()
             self.sess.run(tf.global_variables_initializer())
@@ -228,7 +230,6 @@ def main():
             self.epsilon = epsilon_start
             self.epsilon_linear_step = (epsilon_start-epsilon_end)/epsilon_decay_length
             self.total_steps = 0
-            self.total_eps = 0
 
         def writeReward(self, r, ep):
             self.sess.run(update_ep_reward, feed_dict={r_summary_placeholder: r})
@@ -251,25 +252,32 @@ def main():
                 #    "positive examples and", len([x for x in self.initiation_labels if x == 0]), "negative examples."
 
         def saveInitiationPlot(self, ep):
-            # http://scikit-learn.org/stable/auto_examples/svm/plot_iris.html
-            X0, X1 = np.array(self.initiation_examples)[:, 0], np.array(self.initiation_examples)[:, 1]
-            xx, yy = make_meshgrid(-1, 1, -1./3, 1)
-            labels = [str(self.num_pos_examples) + " positive examples", \
-                str(self.num_neg_examples) + " negative examples"]
-            
-            fig, sub = plt.subplots(1, 1)
+            try:
+                # very rarely, the legend doesn't fit correctly, and this fails
+                # http://scikit-learn.org/stable/auto_examples/svm/plot_iris.html
+                X0, X1 = np.array(self.initiation_examples)[:, 0], np.array(self.initiation_examples)[:, 1]
+                xx, yy = make_meshgrid(-1, 1, -1./3, 1)
+                labels = [str(self.num_pos_examples) + " positive examples", \
+                    str(self.num_neg_examples) + " negative examples"]
+                
+                fig, sub = plt.subplots(1, 1)
 
-            plot_contours(sub, self.initiation_classifier, xx, yy, cmap=plt.cm.coolwarm, alpha=0.8)
-            sub.scatter(X0, X1, c=self.initiation_labels, cmap=plt.cm.coolwarm, s=20, edgecolors='k')
-            sub.set_xlim(xx.min(), xx.max())
-            sub.set_ylim(yy.min(), yy.max())
-            sub.set_xticks(())
-            sub.set_yticks(())
-            sub.set_xlabel("Option " + str(self.n) + " at episode " + str(ep))
+                plot_contours(sub, self.initiation_classifier, xx, yy, cmap=plt.cm.coolwarm, alpha=0.8)
+                sub.scatter(X0, X1, c=self.initiation_labels, cmap=plt.cm.coolwarm, s=20, edgecolors='k')
+                sub.set_xlim(xx.min(), xx.max())
+                sub.set_ylim(yy.min(), yy.max())
+                sub.set_xticks(())
+                sub.set_yticks(())
+                sub.set_xlabel("Option " + str(self.n) + " at episode " + str(ep))
 
-            sub.legend(labels=labels, bbox_to_anchor=(0., 1.02, 1., .102), loc=3, ncol=2, mode="expand", borderaxespad=0.)
-            plt.plot([-0.2, 0.2], [0, 0], 'k-')
-            plt.savefig(self.directory + '/' + str(ep) + '.png')
+                sub.legend(labels=labels, bbox_to_anchor=(0., 1.02, 1., .102), loc=3, ncol=2, mode="expand", borderaxespad=0.)
+                plt.plot([-0.2, 0.2], [0, 0], 'k-')
+                plt.savefig(self.directory + '/' + str(ep) + '.png')
+
+                plt.close()
+            except:
+                print "Failed to generate plot for option", self.n, " at episode", ep
+                print sys.exc_info()[0]
 
         def addInitiationExample(self, state, label):
             self.initiation_examples.append(state)
@@ -285,11 +293,16 @@ def main():
 
         def updateEpsilon(self, done):
             # linearly decay epsilon from epsilon_start to epsilon_end over epsilon_decay_length steps
+            decay = ""
+            old_epsilon = self.epsilon
             if self.total_steps < epsilon_decay_length:
                 self.epsilon -= self.epsilon_linear_step
+                decay = "linear"
             # then exponentially decay it every episode
             elif done:
                 self.epsilon *= epsilon_decay_exp
+                decay = "exponential"
+            print "Updating option", self.n, "epsilon from", old_epsilon, "to", self.epsilon, "with", decay, "decay."
 
         def updateDQN(self, step_experience):
             self.experience.append(step_experience)
@@ -313,8 +326,8 @@ def main():
 
     # http://anytree.readthedocs.io/en/latest/api/anytree.node.html#anytree.node.nodemixin.NodeMixin
     class Skill(Option, NodeMixin):
-        def __init__(self, n, parent = None):
-            super(Skill, self).__init__(n)
+        def __init__(self, n, start_ep, parent = None):
+            super(Skill, self).__init__(n, start_ep)
             self.parent = parent
             self.name = str(n)
 
@@ -326,28 +339,29 @@ def main():
             else:
                 return self.parent.inInitiationSet(full_state[:2])
 
-        def updateInit(self, experiences):
-            # Only called if `opt.inTerminationSet(experiences[-1][0], (not experiences[-1][-1]))`
-            if opt.total_eps <= num_ep_init_class:
+        def updateInit(self, experiences, ep):
+            # Only called if `self.inTerminationSet(experiences[-1][0], (not experiences[-1][-1]))`
+            if ep - self.start_ep <= num_ep_init_class:
                 # List of (x, y) states for experiences less than max_steps_opt time steps away from the goal
                 positive_examples = statesFromExperiences(experiences[-max_steps_opt:])
                 # Only use the last max_neg_traj negative examples, not the hovering at the beginning
                 negative_examples = statesFromExperiences(experiences[-max_steps_opt-max_neg_traj:-max_steps_opt])
-                if len(opt.initiation_examples) == 0 or not opt.inInitiationSet(negative_examples[0]):
-                    opt.addInitiationExamples(positive_examples, 1)
-                    opt.addInitiationExamples(negative_examples, 0)
-                    opt.retrainInitationClassifier(ep)
+                if len(self.initiation_examples) == 0 or not self.inInitiationSet(negative_examples[0]):
+                    self.addInitiationExamples(positive_examples, 1)
+                    self.addInitiationExamples(negative_examples, 0)
+                    self.retrainInitationClassifier(ep)
                 else:
                     print "Trajectory began at state", negative_examples[0], "which is in the initiation set. Skipping."
 
     # initialize session
-    globalMDP = Skill("Global MDP")
+    globalMDP = Skill("Global MDP", 0)
     #TODO: start high, decay
     globalMDP.epsilon = 0.4
 
     num_skills = 0
-    goalOpt = Skill(num_skills, parent=globalMDP)
+    goalOpt = Skill(num_skills, 0, parent=globalMDP)
     num_skills += 1
+    new_opt = goalOpt
 
     #####################################################################################################
     ## Training
@@ -369,9 +383,10 @@ def main():
 
             # TODO: What about when initiation classifier untrained, still need to take steps with
             if opt == globalMDP:
-                current_opt = findOptForState(current_position, goalOpt)
+                current_opt = findOptForState(current_position, goalOpt, ep)
                 if current_opt != None:
                     opt = current_opt
+                    print "Switching from global MDP to option", opt.name
                 else:
                     opt = globalMDP
             
@@ -388,17 +403,21 @@ def main():
 
             opt_reward = reward
 
+            # Since we aren't allowing the global MDP to choose between an action and an option, don't need to give
+            # extra completion reward to encourage choosing an option. Therefore, no difference between total and raw
+            # reward
+            '''
             # if current option is completed and we move to the next, or if we've reached the goal with the goal option
             if (opt == goalOpt and done) or \
                 (opt != globalMDP and opt != goalOpt and opt.parent.inInitiationSet(next_observation[0][:2])):
-                print "Completed opt", opt.name, "! Moving to opt", opt.parent
+                print "Completed opt", opt.name, " Moving to opt", opt.parent.name
                 opt_reward += opt_r
                 opt = opt.parent
+            '''
 
             total_reward += opt_reward
             raw_reward += reward
 
-            # TODO: Just use done...
             step_experience = (observation, action, opt_reward, next_observation, 0.0 if done else 1.0)
             
             #TODO
@@ -410,22 +429,28 @@ def main():
             steps_in_ep += 1
 
             if opt != globalMDP:
+                globalMDP.updateDQN(step_experience)
                 opt.updateEpsilon(done)
                 if opt.inTerminationSet(observation, done):
-                    opt.updateInit(epi_experience)
+                    print "Switching from option", opt.name, "to option", opt.parent.name
                     opt = opt.parent
+            
+            if new_opt != None and ep - new_opt.start_ep <= num_ep_init_class and new_opt.inTerminationSet(observation, done):
+                for exp in epi_experience[-max_steps_opt:]:
+                    new_opt.updateDQN(exp)
+                new_opt.updateInit(epi_experience, ep)
 
             if done:
                 # Increment episode counter
                 _ = opt.sess.run(episode_inc_op)
                 break
 
-        opt.total_eps += 1
+        # TODO: Plot things for other options
+        #opt.writeReward(raw_reward, ep)
+        globalMDP.writeReward(raw_reward, ep)
 
-        opt.writeReward(raw_reward, ep)
-
-        print('Episode %2i, Reward: %7.3f, Steps: %i, Next eps: %7.3f, Minutes: %7.3f'%\
-            (ep, raw_reward, steps_in_ep, opt.epsilon, (time.time() - start_time)/60))
+        print('Episode %2i, Reward: %7.3f, Steps: %i, Minutes: %7.3f'%\
+            (ep, raw_reward, steps_in_ep, (time.time() - start_time)/60))
 
     env.close()
 
