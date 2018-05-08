@@ -21,12 +21,11 @@ from anytree import NodeMixin, RenderTree
 
 import argparse
 
-def atGoal(experience):
-    state = experience[0]
+def atGoal(state, done):
+    # If landed in the target zone (between the two flags)
     x = state[0]
     y = state[1]
-    not_done = experience[-1]
-    return -0.2 < x < 0.2 and -0.1 < y < 0.1 and not not_done
+    return -0.2 < x < 0.2 and -0.1 < y < 0.1 and done
 
 def getMinibatchElem(minibatch, i):
     return np.asarray([elem[i] for elem in minibatch])
@@ -53,6 +52,18 @@ def plot_contours(ax, clf, xx, yy, **params):
     Z = Z.reshape(xx.shape)
     out = ax.contourf(xx, yy, Z, **params)
     return out
+
+def findOptForState(position, root_option):
+    # BFS Search
+    queue = [root_option]
+    while len(queue) != 0:
+        opt = queue.pop(0)
+        # If the state is in the initation set and the initiation set classifier has been fully trained
+        if opt.inInitiationSet(position) and opt.total_eps >= num_ep_init_class:
+            return opt
+        else:
+            queue += opt.children
+    return None
 
 def main():
 
@@ -98,6 +109,7 @@ def main():
     opt_r = 35
     # How long to gather initiation classifier data for
     num_ep_init_class = 50
+    max_branching_factor = 2
 
     # How long to wait before adding new option?
     steps_per_opt = num_episodes/10
@@ -211,6 +223,7 @@ def main():
             self.experience = deque(maxlen=replay_memory_capacity)
 
             self.gestation = True
+            self.initTrained = False
 
             self.epsilon = epsilon_start
             self.epsilon_linear_step = (epsilon_start-epsilon_end)/epsilon_decay_length
@@ -232,6 +245,7 @@ def main():
                 self.initiation_classifier.fit(self.initiation_examples, self.initiation_labels)
                 print "Retrained option", self.n, "classifier in", (time.time() - class_start_time), "seconds."
                 self.saveInitiationPlot(ep)
+                self.initTrained = True
             #else:
                 #print "Not training classifier,", len([x for x in self.initiation_labels if x == 1]), \
                 #    "positive examples and", len([x for x in self.initiation_labels if x == 0]), "negative examples."
@@ -267,7 +281,7 @@ def main():
             self.initiation_labels += [label]*len(states)
 
         def inInitiationSet(self, state):
-            return self.initiation_classifier.predict([state])[0]
+            return self.initTrained and self.initiation_classifier.predict([state])[0]
 
         def updateEpsilon(self, done):
             # linearly decay epsilon from epsilon_start to epsilon_end over epsilon_decay_length steps
@@ -304,16 +318,36 @@ def main():
             self.parent = parent
             self.name = str(n)
 
-        def inTerminationSet(self, experience):
-            if self.n == 0:
-                return atGoal(experience)
+        def inTerminationSet(self, full_state, done):
+            if self.n == "Global MDP":
+                return False
+            elif self.n == 0:
+                return atGoal(full_state, done)
             else:
-                return self.parent.inInitiationSet(experience[0][:2])
+                return self.parent.inInitiationSet(full_state[:2])
+
+        def updateInit(self, experiences):
+            # Only called if `opt.inTerminationSet(experiences[-1][0], (not experiences[-1][-1]))`
+            if opt.total_eps <= num_ep_init_class:
+                # List of (x, y) states for experiences less than max_steps_opt time steps away from the goal
+                positive_examples = statesFromExperiences(experiences[-max_steps_opt:])
+                # Only use the last max_neg_traj negative examples, not the hovering at the beginning
+                negative_examples = statesFromExperiences(experiences[-max_steps_opt-max_neg_traj:-max_steps_opt])
+                if len(opt.initiation_examples) == 0 or not opt.inInitiationSet(negative_examples[0]):
+                    opt.addInitiationExamples(positive_examples, 1)
+                    opt.addInitiationExamples(negative_examples, 0)
+                    opt.retrainInitationClassifier(ep)
+                else:
+                    print "Trajectory began at state", negative_examples[0], "which is in the initiation set. Skipping."
 
     # initialize session
-    skills = []
-    goalOpt = Skill(len(skills))
-    skills.append(goalOpt)
+    globalMDP = Skill("Global MDP")
+    #TODO: start high, decay
+    globalMDP.epsilon = 0.4
+
+    num_skills = 0
+    goalOpt = Skill(num_skills, parent=globalMDP)
+    num_skills += 1
 
     #####################################################################################################
     ## Training
@@ -329,12 +363,18 @@ def main():
 
         observation = env.reset()
 
+        opt = globalMDP
         for t in range(max_steps_ep):
-
-            opt = skills[0]
             current_position = observation[:2]
 
-            # TODO: Choose an action, option, or random
+            # TODO: What about when initiation classifier untrained, still need to take steps with
+            if opt == globalMDP:
+                current_opt = findOptForState(current_position, goalOpt)
+                if current_opt != None:
+                    opt = current_opt
+                else:
+                    opt = globalMDP
+            
             if np.random.random() < opt.epsilon:
                 action = np.random.randint(n_actions)
             else:
@@ -346,20 +386,34 @@ def main():
             if args.visualize:
                 env.render()
 
-            opt_reward = reward + 0
+            opt_reward = reward
+
+            # if current option is completed and we move to the next, or if we've reached the goal with the goal option
+            if (opt == goalOpt and done) or \
+                (opt != globalMDP and opt != goalOpt and opt.parent.inInitiationSet(next_observation[0][:2])):
+                print "Completed opt", opt.name, "! Moving to opt", opt.parent
+                opt_reward += opt_r
+                opt = opt.parent
+
             total_reward += opt_reward
             raw_reward += reward
 
+            # TODO: Just use done...
             step_experience = (observation, action, opt_reward, next_observation, 0.0 if done else 1.0)
+            
+            #TODO
             opt.updateDQN(step_experience)
             epi_experience.append(step_experience)
-            # add this to experience replay buffer
 
             observation = next_observation
             opt.total_steps += 1
             steps_in_ep += 1
 
-            opt.updateEpsilon(done)
+            if opt != globalMDP:
+                opt.updateEpsilon(done)
+                if opt.inTerminationSet(observation, done):
+                    opt.updateInit(epi_experience)
+                    opt = opt.parent
 
             if done:
                 # Increment episode counter
@@ -367,19 +421,6 @@ def main():
                 break
 
         opt.total_eps += 1
-        # TODO: Make the body a function
-        # If landed in the target zone (between the two flags)
-        if opt.total_eps <= num_ep_init_class and opt.inTerminationSet(epi_experience[-1]):
-            # List of (x, y) states for experiences less than max_steps_opt time steps away from the goal
-            positive_examples = statesFromExperiences(epi_experience[-max_steps_opt:])
-            # Only use the last max_neg_traj negative examples, not the hovering at the beginning
-            negative_examples = statesFromExperiences(epi_experience[-max_steps_opt-max_neg_traj:-max_steps_opt])
-            if len(opt.initiation_examples) == 0 or not opt.inInitiationSet(negative_examples[0]):
-                opt.addInitiationExamples(positive_examples, 1)
-                opt.addInitiationExamples(negative_examples, 0)
-                opt.retrainInitationClassifier(ep)
-            else:
-                print "Trajectory began at state", negative_examples[0], "which is in the initiation set. Skipping."
 
         opt.writeReward(raw_reward, ep)
 
