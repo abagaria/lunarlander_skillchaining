@@ -73,6 +73,11 @@ def main():
     r_summary_placeholder = tf.placeholder("float")
     update_ep_reward = episode_reward.assign(r_summary_placeholder)
 
+    plot_epsilon = tf.Variable(0.)
+    tf.summary.scalar("Epsilon", plot_epsilon)
+    eps_summary_placeholder = tf.placeholder("float")
+    update_plot_epsilon = plot_epsilon.assign(eps_summary_placeholder)
+
     # episode counter
     episodes = tf.Variable(0.0, trainable=False, name='episodes')
     episode_inc_op = episodes.assign_add(1)
@@ -218,6 +223,7 @@ def main():
                     break
 
             sess.run(update_ep_reward, feed_dict={r_summary_placeholder: total_reward})
+            sess.run(update_plot_epsilon, feed_dict={eps_summary_placeholder: epsilon})
             summary_str = sess.run(tf.summary.merge_all())
             writer.add_summary(summary_str, ep)
 
