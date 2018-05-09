@@ -21,6 +21,8 @@ from anytree import NodeMixin, RenderTree
 
 import argparse
 
+# TODO: This code's pretty messy..
+
 # TODO: Capitalize
 # DQN Params
 gamma = 0.99
@@ -51,7 +53,7 @@ gestation = 10
 # Stop adding options after this timestep
 add_opt_cutoff = num_episodes/5
 # Maximum number of steps in one option
-max_steps_opt = 35
+max_steps_opt = 25
 max_neg_traj = max_steps_opt*10
 # Option completion reward - not used since global MDP currently must choose an option if presented with it
 opt_r = 35
@@ -213,7 +215,7 @@ def main():
     ## Tensorflow
     ####################################################################################################################
 
-    timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H_%M_%S')
+    timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H_%M_%S___') + str(int(time.time() *10e5))
     class Option:
         def __init__(self, n, start_ep):
             self.n = n
@@ -290,8 +292,9 @@ def main():
                 sub.set_xticks(())
                 sub.set_yticks(())
                 sub.set_xlabel("Option " + str(self.n) + " at episode " + str(ep))
+                sub.set_ylabel(str(self.num_pos_examples) + " pos, " + str(self.num_neg_examples) + " neg")
 
-                sub.legend(labels=labels, bbox_to_anchor=(0., 1.02, 1., .102), loc=3, ncol=2, mode="expand", borderaxespad=0.)
+                #sub.legend(labels=labels, bbox_to_anchor=(0., 1.02, 1., .102), loc=3, ncol=2, mode="expand", borderaxespad=0.)
                 plt.plot([-0.2, 0.2], [0, 0], 'k-')
                 plt.savefig(self.directory + '/' + str(ep) + '.png')
 
