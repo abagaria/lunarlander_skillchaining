@@ -23,7 +23,7 @@ import argparse
 
 # TODO: This code's pretty messy..
 
-# TODO: Capitalize
+# TODO: Capitalize, or don't make them global
 # DQN Params
 gamma = 0.99
 # Hidden layer sizes
@@ -62,7 +62,7 @@ num_ep_init_class = 50
 max_num_init_ex = 6000
 # unused
 max_branching_factor = 2
-# episode to drop the epsilon to epsilon_end
+# episode to drop the epsilon to 0
 epsilon_drop_episode = 4*num_episodes/5
 
 def atGoal(state, done):
@@ -118,12 +118,12 @@ def writeAllEpsilon(root_option, ep):
         option.writeEpsilon(ep)
         queue += option.children
 
-def dropAllEpsilon(root_option, final_epsilon):
+def dropAllEpsilon(root_option):
     # BFS iteration
     queue = [root_option]
     while len(queue) != 0:
         option = queue.pop(0)
-        option.epsilon = final_epsilon
+        option.epsilon = 0.0
         queue += option.children
 
 def main():
@@ -226,6 +226,7 @@ def main():
     ## Tensorflow
     ####################################################################################################################
 
+    # date and time, with full unix timestamp appended
     timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H_%M_%S___') + str(int(time.time() *10e5))
     class Option:
         def __init__(self, n, start_ep):
@@ -233,7 +234,7 @@ def main():
             self.start_ep = start_ep
 
             self.sess = tf.Session()
-            # TODO: Initialize from globalMDP - all the way up the tree
+            # TODO: Initialize from globalMDP - all the way up the tree - possibly use saver and loader 
             self.sess.run(tf.global_variables_initializer())
 
             self.writer = tf.summary.FileWriter("board_" + timestamp + '_' + str(n))
@@ -326,7 +327,7 @@ def main():
         def inInitiationSet(self, state):
             return self.initTrained and self.initiation_classifier.predict([state])[0]
 
-        # TODO: Update epsilon - print values, they're too high
+        # TODO: epsilon decay
         def updateEpsilon(self, done):
             # linearly decay epsilon from epsilon_start to epsilon_end over epsilon_decay_length steps
             decay = ""
@@ -417,7 +418,7 @@ def main():
         if new_opt != None and new_opt.classifierTrained():
             new_opt = None
         if ep >= epsilon_drop_episode:
-            dropAllEpsilon(globalMDP, epsilon_end)
+            dropAllEpsilon(globalMDP)
         for t in range(max_steps_ep):
             current_position = observation[:2]
 
@@ -490,9 +491,6 @@ def main():
                 # Increment episode counter
                 _ = opt.sess.run(episode_inc_op)
                 break
-
-        # TODO: Plot things for other options
-        #opt.writeReward(raw_reward, ep)
         
         # TODO: only write once, writeEpsilon currently writes for all but global since nothing else is plotted
         writeAllEpsilon(globalMDP, ep)
