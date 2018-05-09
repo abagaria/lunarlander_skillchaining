@@ -62,6 +62,8 @@ num_ep_init_class = 50
 max_num_init_ex = 6000
 # unused
 max_branching_factor = 2
+# episode to drop the epsilon to epsilon_end
+epsilon_drop_episode = 4*num_episodes/5
 
 def atGoal(state, done):
     # If landed in the target zone (between the two flags)
@@ -95,6 +97,7 @@ def plot_contours(ax, clf, xx, yy, **params):
     out = ax.contourf(xx, yy, Z, **params)
     return out
 
+# TODO: BFS function
 def findOptForState(position, root_option, ep):
     # BFS Search
     queue = [root_option]
@@ -113,6 +116,14 @@ def writeAllEpsilon(root_option, ep):
     while len(queue) != 0:
         option = queue.pop(0)
         option.writeEpsilon(ep)
+        queue += option.children
+
+def dropAllEpsilon(root_option, final_epsilon):
+    # BFS iteration
+    queue = [root_option]
+    while len(queue) != 0:
+        option = queue.pop(0)
+        option.epsilon = final_epsilon
         queue += option.children
 
 def main():
@@ -405,6 +416,8 @@ def main():
         opt = globalMDP
         if new_opt != None and new_opt.classifierTrained():
             new_opt = None
+        if ep >= epsilon_drop_episode:
+            dropAllEpsilon(globalMDP, epsilon_end)
         for t in range(max_steps_ep):
             current_position = observation[:2]
 
