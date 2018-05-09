@@ -51,13 +51,14 @@ gestation = 10
 # Stop adding options after this timestep
 add_opt_cutoff = num_episodes/5
 # Maximum number of steps in one option
-max_steps_opt = 50
+max_steps_opt = 35
 max_neg_traj = max_steps_opt*10
 # Option completion reward - not used since global MDP currently must choose an option if presented with it
 opt_r = 35
-# How long to gather initiation classifier data for
-num_ep_init_class = 35
+# How long to gather initiation classifier data for, and the maximum number of examples that can be reached before
+num_ep_init_class = 50
 max_num_init_ex = 6000
+# unused
 max_branching_factor = 2
 
 def atGoal(state, done):
@@ -104,6 +105,14 @@ def findOptForState(position, root_option, ep):
             queue += opt.children
     return None
 
+def writeAllEpsilon(root_option, ep):
+    # BFS iteration
+    queue = [root_option]
+    while len(queue) != 0:
+        option = queue.pop(0)
+        option.writeEpsilon(ep)
+        queue += option.children
+
 def main():
 
     parser = argparse.ArgumentParser(description = "Lunar Lander")
@@ -138,6 +147,11 @@ def main():
     tf.summary.scalar("Episode Reward", episode_reward)
     r_summary_placeholder = tf.placeholder("float")
     update_ep_reward = episode_reward.assign(r_summary_placeholder)
+
+    plot_epsilon = tf.Variable(0.)
+    tf.summary.scalar("Epsilon", plot_epsilon)
+    eps_summary_placeholder = tf.placeholder("float")
+    update_plot_epsilon = plot_epsilon.assign(eps_summary_placeholder)
 
     # episode counter
     episodes = tf.Variable(0.0, trainable=False, name='episodes')
@@ -233,6 +247,12 @@ def main():
             self.sess.run(update_ep_reward, feed_dict={r_summary_placeholder: r})
             summary_str = self.sess.run(tf.summary.merge_all())
             self.writer.add_summary(summary_str, ep)
+
+        def writeEpsilon(self, ep):
+            self.sess.run(update_plot_epsilon, feed_dict={eps_summary_placeholder: self.epsilon})
+            if self.n != "GlobalMDP":
+                summary_str = self.sess.run(tf.summary.merge_all())
+                self.writer.add_summary(summary_str, ep)
 
         def retrainInitationClassifier(self, ep):
             self.num_pos_examples = len([x for x in self.initiation_labels if x == 1])
@@ -334,7 +354,7 @@ def main():
             self.name = str(n)
 
         def inTerminationSet(self, full_state, done):
-            if self.n == "Global MDP":
+            if self.n == "GlobalMDP":
                 return False
             elif self.n == 0:
                 return atGoal(full_state, done)
@@ -357,7 +377,7 @@ def main():
                     print "Trajectory began at state", negative_examples[0], "which is in the initiation set. Skipping."
 
     # initialize session
-    globalMDP = Skill("Global MDP", 0)
+    globalMDP = Skill("GlobalMDP", 0)
 
     num_skills = 0
     goalOpt = Skill(num_skills, 0, parent=globalMDP)
@@ -438,6 +458,7 @@ def main():
             opt.updateEpsilon(done)
             if opt != globalMDP:
                 globalMDP.updateDQN(step_experience)
+                globalMDP.updateEpsilon(done)
                 if opt.inTerminationSet(observation, done):
                     print "Switching from option", opt.name, "to option", opt.parent.name
                     opt = opt.parent
@@ -456,6 +477,9 @@ def main():
 
         # TODO: Plot things for other options
         #opt.writeReward(raw_reward, ep)
+        
+        # TODO: only write once, writeEpsilon currently writes for all but global since nothing else is plotted
+        writeAllEpsilon(globalMDP, ep)
         globalMDP.writeReward(raw_reward, ep)
 
         print('Episode %2i, Reward: %7.3f, Steps: %i, Minutes: %7.3f'%\
