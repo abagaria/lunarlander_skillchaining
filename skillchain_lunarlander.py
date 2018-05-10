@@ -240,6 +240,8 @@ def main():
             self.writer = tf.summary.FileWriter("board_" + timestamp + '_' + str(n))
             self.writer.add_graph(self.sess.graph)
 
+            self.saver = tf.train.Saver()
+
             self.directory = timestamp + '/' + str(self.n)
             if not os.path.exists(self.directory):
                 os.makedirs(self.directory)
@@ -286,6 +288,15 @@ def main():
         def classifierTrained(self):
             return ep - self.start_ep > num_ep_init_class or len(self.initiation_labels) > max_num_init_ex        
 
+        def loadDQNWeights(self, model_file):
+            print "Loading weights for new option", self.n, "from", model_file
+            self.saver.restore(self.sess, model_file)
+
+        def saveDQNWeights(self, model_file):
+            assert(self.n == "GlobalMDP")
+            print "Saving", self.n, "DQN weights to", model_file
+            self.saver.save(self.sess, model_file)
+
         def saveInitiationPlot(self, ep):
             try:
                 # very rarely, the legend doesn't fit correctly, and this fails
@@ -328,18 +339,20 @@ def main():
             return self.initTrained and self.initiation_classifier.predict([state])[0]
 
         # TODO: epsilon decay
-        def updateEpsilon(self, done):
-            # linearly decay epsilon from epsilon_start to epsilon_end over epsilon_decay_length steps
-            decay = ""
-            old_epsilon = self.epsilon
-            if self.total_steps < epsilon_decay_length:
-                self.epsilon -= self.epsilon_linear_step
-                decay = "linear"
-            # then exponentially decay it every episode
-            elif done:
-                self.epsilon *= epsilon_decay_exp
-                decay = "exponential"
-            #print "Updating option", self.n, "epsilon from", old_epsilon, "to", self.epsilon, "with", decay, "decay."
+        def updateEpsilon(self, done, ep):
+            # Only update if Epsilon hasn't been forced to zero
+            if ep < epsilon_drop_episode:
+                # linearly decay epsilon from epsilon_start to epsilon_end over epsilon_decay_length steps
+                decay = ""
+                old_epsilon = self.epsilon
+                if self.total_steps < epsilon_decay_length:
+                    self.epsilon -= self.epsilon_linear_step
+                    decay = "linear"
+                # then exponentially decay it every episode
+                elif done:
+                    self.epsilon *= epsilon_decay_exp
+                    decay = "exponential"
+                #print "Updating option", self.n, "epsilon from", old_epsilon, "to", self.epsilon, "with", decay, "decay."
 
         def updateDQN(self, step_experience):
             self.experience.append(step_experience)
@@ -367,6 +380,18 @@ def main():
             super(Skill, self).__init__(n, start_ep)
             self.parent = parent
             self.name = str(n)
+
+            # Not the global MDP or the goal option
+            if self.parent != None and self.parent.parent != None:
+                global_mdp = self.parent
+                while global_mdp.parent != None:
+                    global_mdp = global_mdp.parent
+                # Timestamp shouldn't be necessary since only one model will be saved for each option
+                timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H_%M_%S')
+                weights_file = self.directory + '/' + timestamp + ".ckpt"
+                global_mdp.saveDQNWeights(weights_file)
+                self.loadDQNWeights(weights_file)
+
 
         def inTerminationSet(self, full_state, done):
             if self.n == "GlobalMDP":
@@ -472,10 +497,10 @@ def main():
             opt.total_steps += 1
             steps_in_ep += 1
 
-            opt.updateEpsilon(done)
+            opt.updateEpsilon(done, ep)
             if opt != globalMDP:
                 globalMDP.updateDQN(step_experience)
-                globalMDP.updateEpsilon(done)
+                globalMDP.updateEpsilon(done, ep)
                 if opt.inTerminationSet(observation, done):
                     print "Switching from option", opt.name, "to option", opt.parent.name
                     opt = opt.parent
