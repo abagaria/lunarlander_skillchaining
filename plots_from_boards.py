@@ -12,19 +12,57 @@ import sys
 import random
 import argparse
 
+def savePlot(rewards, color, filename):
+    plt.xlim([0, 1000])
+    plt.ylim([-400, 400])
+    avg = np.mean(rewards, axis=0)
+    smooth_average = smooth(avg, 0.9)
+    std = np.std(rewards, axis=0)
+    plt.plot(range(avg.shape[0]), avg, 'b')
+    plt.plot(range(smooth_average.shape[0]), smooth_average, 'k')
+    plt.fill_between(range(avg.shape[0]), avg-std, avg+std)
+    plt.savefig(filename)
+    plt.close()
+    return (avg, smooth_average)
+
+def plotAll(averages, filename):
+    plt.xlim([0, 1000])
+    plt.ylim([-400, 400])
+    colors = [['b', 'aqua'], ['r', 'm'], ['g', 'y'], ["purple", "fuchsia"]]
+    for i, (avg, sm) in enumerate(averages):
+        plt.plot(range(avg.shape[0]), avg, colors[i][1])
+    for i, (avg, sm) in enumerate(averages):
+        plt.plot(range(sm.shape[0]), sm, colors[i][0])
+    plt.savefig(filename)
+    plt.close()
+
+# https://stackoverflow.com/questions/42281844/what-is-the-mathematics-behind-the-smoothing-parameter-in-tensorboards-scalar
+# Replicate tensorboard smoothed plotting function
+def smooth(scalars, weight):  # Weight between 0 and 1
+    last = scalars[0]  # First value in the plot (first timestep)
+    smoothed = list()
+    for point in scalars:
+        smoothed_val = last * weight + (1 - weight) * point  # Calculate smoothed value
+        smoothed.append(smoothed_val)                        # Save it
+        last = smoothed_val                                  # Anchor the last smoothed value
+
+    return np.array(smoothed)
+
 def main():
     parser = argparse.ArgumentParser(description = "Generate plots from TensorBoard log files")
     # If true, generates plots for 
     parser.add_argument("--logdir", type=str, default="/home/matt/boards_ll")
     args = parser.parse_args()
 
-    sc_path = args.logdir + '/' + "sc" + '/'
-    dqn_path = args.logdir + '/' + "dqn" + '/'
-    rewards = [[], []]
-    for i, t in enumerate([sc_path, dqn_path]):
+    paths = []
+    paths.append(args.logdir + '/' + "dqn" + '/')
+    paths.append(args.logdir + '/' + "sc" + '/')
+    paths.append(args.logdir + '/' + "sc_epsilon_cutoff" + '/')
+    rewards = [[] for p in range(len(paths))]
+    for i, t in enumerate(paths):
         for subdir, dirs, files in os.walk(t):
             for file in files:
-                if file[:10] == "events.out" and (subdir[-9:] == "GlobalMDP" or i):
+                if file[:10] == "events.out" and (subdir[-9:] == "GlobalMDP" or not i):
                     log_file = subdir + '/' + file
                     print "Reading", log_file
                     ea = event_accumulator.EventAccumulator(log_file)
@@ -35,31 +73,18 @@ def main():
                         elif tag == "Epsilon":
                             #TODO
                             pass
-    sc_rewards = np.array(rewards[0])
-    dqn_rewards = np.array(rewards[1])
-
-    # uncorrected sample sd, population vs sample variance
-    sc_avg = np.mean(sc_rewards, axis=0)
-    sc_std = np.std(sc_rewards, axis=0)
-    dqn_avg = np.mean(dqn_rewards, axis=0)
-    dqn_std = np.std(dqn_rewards, axis=0)
-
-    print sc_avg[-1], dqn_avg[-1]
+    dqn_rewards = np.array(rewards[0])
+    sc_rewards = np.array(rewards[1])
+    scec_rewards = np.array(rewards[2])
 
     timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H_%M_%S')
-    
-    plt.xlim([0, 1000])
-    plt.ylim([-400, 400])
-    plt.plot(range(dqn_avg.shape[0]), dqn_avg, 'b')
-    plt.fill_between(range(dqn_avg.shape[0]), dqn_avg-dqn_std, dqn_avg+dqn_std)
-    plt.savefig(args.logdir + '/' + timestamp + '_dqn.png')
-    plt.close()
-    plt.xlim([0, 1000])
-    plt.ylim([-400, 400])
-    plt.plot(range(sc_avg.shape[0]), sc_avg, 'g')
-    plt.fill_between(range(sc_avg.shape[0]), sc_avg-sc_std, sc_avg+sc_std)
-    plt.savefig(args.logdir + '/' + timestamp + '_sc.png')
 
+    averages = []
+    averages.append(savePlot(dqn_rewards, 2, args.logdir + '/' + timestamp + '_dqn.png'))
+    averages.append(savePlot(sc_rewards, 2, args.logdir + '/' + timestamp + '_sc.png'))
+    averages.append(savePlot(scec_rewards, 2, args.logdir + '/' + timestamp + '_scec.png'))
+
+    plotAll(averages, args.logdir + '/' + timestamp + '_all.png')
 
 if __name__ == '__main__':
     main()
