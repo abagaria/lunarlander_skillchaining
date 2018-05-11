@@ -53,7 +53,7 @@ gestation = 10
 # Stop adding options after this timestep
 add_opt_cutoff = num_episodes/5
 # Maximum number of steps in one option
-max_steps_opt = 25
+max_steps_opt = 35
 max_neg_traj = max_steps_opt*10
 # Option completion reward - not used since global MDP currently must choose an option if presented with it
 opt_r = 35
@@ -234,7 +234,6 @@ def main():
             self.start_ep = start_ep
 
             self.sess = tf.Session()
-            # TODO: Initialize from globalMDP - all the way up the tree - possibly use saver and loader 
             self.sess.run(tf.global_variables_initializer())
 
             self.writer = tf.summary.FileWriter("board_" + timestamp + '_' + str(n))
