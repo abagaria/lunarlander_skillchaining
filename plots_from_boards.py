@@ -28,7 +28,7 @@ def savePlot(rewards, color, filename):
 def plotAll(averages, filename):
     plt.xlim([0, 1000])
     plt.ylim([-400, 400])
-    colors = [['b', 'aqua'], ['r', 'm'], ['g', 'y'], ["purple", "fuchsia"]]
+    colors = [['b', 'aqua'], ["purple", "fuchsia"], ['r', 'm'], ['g', 'y']]
     for i, (avg, sm) in enumerate(averages):
         plt.plot(range(avg.shape[0]), avg, colors[i][1])
     for i, (avg, sm) in enumerate(averages):
@@ -56,6 +56,7 @@ def main():
 
     paths = []
     paths.append(args.logdir + '/' + "dqn" + '/')
+    paths.append(args.logdir + '/' + "sc_load_dqn" + '/')
     paths.append(args.logdir + '/' + "sc" + '/')
     paths.append(args.logdir + '/' + "sc_epsilon_cutoff" + '/')
     rewards = [[] for p in range(len(paths))]
@@ -74,17 +75,20 @@ def main():
                             #TODO
                             pass
     dqn_rewards = np.array(rewards[0])
-    sc_rewards = np.array(rewards[1])
-    scec_rewards = np.array(rewards[2])
+    scldqn_rewards = np.array(rewards[1])
+    sc_rewards = np.array(rewards[2])
+    scec_rewards = np.array(rewards[3])
 
     timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H_%M_%S')
 
     averages = []
     averages.append(savePlot(dqn_rewards, 2, args.logdir + '/' + timestamp + '_dqn.png'))
+    averages.append(savePlot(scldqn_rewards, 2, args.logdir + '/' + timestamp + '_scldqn.png'))
     averages.append(savePlot(sc_rewards, 2, args.logdir + '/' + timestamp + '_sc.png'))
     averages.append(savePlot(scec_rewards, 2, args.logdir + '/' + timestamp + '_scec.png'))
 
     plotAll(averages, args.logdir + '/' + timestamp + '_all.png')
+    plotAll(averages[:2], args.logdir + '/' + timestamp + '_scl_and_dqn.png')
 
 if __name__ == '__main__':
     main()
