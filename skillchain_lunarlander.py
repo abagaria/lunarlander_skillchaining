@@ -53,7 +53,7 @@ gestation = 10
 # Stop adding options after this timestep
 add_opt_cutoff = num_episodes/5
 # Maximum number of steps in one option
-max_steps_opt = 35
+max_steps_opt = 50
 max_neg_traj = max_steps_opt*10
 # Option completion reward - not used since global MDP currently must choose an option if presented with it
 opt_r = 35
