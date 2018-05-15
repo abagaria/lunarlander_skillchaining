@@ -21,9 +21,6 @@ from anytree import NodeMixin, RenderTree
 
 import argparse
 
-# TODO: This code's pretty messy..
-
-# TODO: Capitalize, or don't make them global
 # DQN Params
 gamma = 0.99
 # Hidden layer sizes
@@ -139,10 +136,6 @@ def main():
     state_dim = np.prod(np.array(env.observation_space.shape))
     n_actions = env.action_space.n
 
-    # set seeds to 0
-    #env.seed(0)
-    #np.random.seed(0)
-
     ####################################################################################################################
     ## Tensorflow
 
@@ -225,6 +218,7 @@ def main():
 
     ## Tensorflow
     ####################################################################################################################
+    ## Option and Skill classes
 
     # date and time, with full unix timestamp appended
     timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y_%m_%d_%H_%M_%S___') + str(int(time.time() *10e5))
@@ -251,7 +245,6 @@ def main():
 
             self.experience = deque(maxlen=replay_memory_capacity)
 
-            self.gestation = True
             self.initTrained = False
 
             self.epsilon = epsilon_start
@@ -274,18 +267,15 @@ def main():
             self.num_neg_examples = len([x for x in self.initiation_labels if x == 0])
             if self.num_pos_examples != 0 and self.num_neg_examples != 0:
                 print "Training classifier with", len([x for x in self.initiation_labels if x == 1]), \
-                    "positive examples and", len([x for x in self.initiation_labels if x == 0]), "negative examples." 
+                    "positive examples and", len([x for x in self.initiation_labels if x == 0]), "negative examples."
                 class_start_time = time.time()
                 self.initiation_classifier.fit(self.initiation_examples, self.initiation_labels)
                 print "Retrained option", self.n, "classifier in", (time.time() - class_start_time), "seconds."
                 self.saveInitiationPlot(ep)
                 self.initTrained = True
-            #else:
-                #print "Not training classifier,", len([x for x in self.initiation_labels if x == 1]), \
-                #    "positive examples and", len([x for x in self.initiation_labels if x == 0]), "negative examples."
 
         def classifierTrained(self):
-            return ep - self.start_ep > num_ep_init_class or len(self.initiation_labels) > max_num_init_ex        
+            return ep - self.start_ep > num_ep_init_class or len(self.initiation_labels) > max_num_init_ex
 
         def loadDQNWeights(self, model_file):
             print "Loading weights for new option", self.n, "from", model_file
@@ -304,7 +294,7 @@ def main():
                 xx, yy = make_meshgrid(-1, 1, -1./3, 1)
                 labels = [str(self.num_pos_examples) + " positive examples", \
                     str(self.num_neg_examples) + " negative examples"]
-                
+
                 fig, sub = plt.subplots(1, 1)
 
                 plot_contours(sub, self.initiation_classifier, xx, yy, cmap=plt.cm.coolwarm, alpha=0.8)
@@ -325,12 +315,7 @@ def main():
                 print "Failed to generate plot for option", self.n, " at episode", ep
                 print sys.exc_info()[0]
 
-        def addInitiationExample(self, state, label):
-            self.initiation_examples.append(state)
-            self.initiation_labels.append(label)
-
         def addInitiationExamples(self, states, label):
-            
             self.initiation_examples += states
             self.initiation_labels += [label]*len(states)
 
@@ -415,16 +400,18 @@ def main():
                 elif len(negative_examples) != 0:
                     print "Trajectory began at state", negative_examples[0], "which is in the initiation set. Skipping."
 
+    ## Option and Skill classes
+    ####################################################################################################################
+    ## Training
+
     # initialize session
     globalMDP = Skill("GlobalMDP", 0)
 
     num_skills = 0
     goalOpt = Skill(num_skills, 0, parent=globalMDP)
     num_skills += 1
+    # continually updated, set to new option whose initiation classifier is not fully trained, else set to None
     new_opt = goalOpt
-
-    #####################################################################################################
-    ## Training
 
     start_time = time.time()
     for ep in range(num_episodes):
@@ -438,14 +425,18 @@ def main():
 
         observation = env.reset()
 
+        # Option to use at each step of this episode
         opt = globalMDP
+        # Check to see if initiation classification is done
         if new_opt != None and new_opt.classifierTrained():
             new_opt = None
+        # Drop all epsilons in the tree to zero
         if ep >= epsilon_drop_episode:
             dropAllEpsilon(globalMDP)
         for t in range(max_steps_ep):
             current_position = observation[:2]
 
+            # determine if we should switch to an option, create a new one, or continue to use global MDP
             if opt == globalMDP:
                 current_opt = findOptForState(current_position, goalOpt, ep)
                 if current_opt != None:
@@ -458,7 +449,7 @@ def main():
                         num_skills += 1
                 else:
                     opt = globalMDP
-            
+
             if np.random.random() < opt.epsilon:
                 action = np.random.randint(n_actions)
             else:
@@ -479,9 +470,8 @@ def main():
             # if current option is completed and we move to the next, or if we've reached the goal with the goal option
             if (opt == goalOpt and done) or \
                 (opt != globalMDP and opt != goalOpt and opt.parent.inInitiationSet(next_observation[0][:2])):
-                print "Completed opt", opt.name, " Moving to opt", opt.parent.name
+                print "Completed opt", opt.name, ", assigning reward."
                 opt_reward += opt_r
-                opt = opt.parent
             '''
 
             total_reward += opt_reward
@@ -503,7 +493,7 @@ def main():
                 if opt.inTerminationSet(observation, done):
                     print "Switching from option", opt.name, "to option", opt.parent.name
                     opt = opt.parent
-            
+
             if new_opt != None and not new_opt.classifierTrained() and new_opt.inTerminationSet(observation, done) and not newopt_episode_terminated:
                 # Only update once per episode, at what would be the transition
                 newopt_episode_terminated = True
@@ -515,7 +505,7 @@ def main():
                 # Increment episode counter
                 _ = opt.sess.run(episode_inc_op)
                 break
-        
+
         # TODO: only write once, writeEpsilon currently writes for all but global since nothing else is plotted
         writeAllEpsilon(globalMDP, ep)
         globalMDP.writeReward(raw_reward, ep)
