@@ -94,7 +94,15 @@ def plot_contours(ax, clf, xx, yy, **params):
     out = ax.contourf(xx, yy, Z, **params)
     return out
 
-# TODO: BFS function
+# TODO: BFS function...
+def optTreeToList(root_option):
+    optList = []
+    queue = [root_option]
+    while len(queue) != 0:
+        opt = queue.pop(0)
+        optList.append(opt)
+    return optList
+
 def findOptForState(position, root_option, ep):
     # BFS Search
     queue = [root_option]
@@ -241,6 +249,9 @@ def main():
 
             self.initiation_examples = []
             self.initiation_labels = []
+            # Printing
+            self.num_updates_per_ep = []
+            self.size_exp_buff_per_ep = []
             self.initiation_classifier = svm.SVC(kernel="rbf")
 
             self.experience = deque(maxlen=replay_memory_capacity)
@@ -338,7 +349,7 @@ def main():
                     decay = "exponential"
                 #print "Updating option", self.n, "epsilon from", old_epsilon, "to", self.epsilon, "with", decay, "decay."
 
-        def updateDQN(self, step_experience):
+        def updateDQN(self, step_experience, episode):
             self.experience.append(step_experience)
 
             # update the slow target's weights to match the latest q network if it's time to do so
@@ -357,6 +368,8 @@ def main():
                     feed_dict = {state_ph: getMinibatchElem(minibatch, 0), action_ph: getMinibatchElem(minibatch, 1), \
                         reward_ph: getMinibatchElem(minibatch, 2), next_state_ph: getMinibatchElem(minibatch, 3), \
                         is_not_terminal_ph: getMinibatchElem(minibatch, 4), is_training_ph: True})
+                self.num_updates_per_ep[episode] += 1
+                self.size_exp_buff_per_ep[episode] = len(self.experience)
 
     # http://anytree.readthedocs.io/en/latest/api/anytree.node.html#anytree.node.nodemixin.NodeMixin
     class Skill(Option, NodeMixin):
@@ -479,7 +492,7 @@ def main():
 
             step_experience = (observation, action, opt_reward, next_observation, 0.0 if done else 1.0)
 
-            opt.updateDQN(step_experience)
+            opt.updateDQN(step_experience, ep)
             epi_experience.append(step_experience)
 
             observation = next_observation
@@ -488,7 +501,7 @@ def main():
 
             opt.updateEpsilon(done, ep)
             if opt != globalMDP:
-                globalMDP.updateDQN(step_experience)
+                globalMDP.updateDQN(step_experience, ep)
                 globalMDP.updateEpsilon(done, ep)
                 if opt.inTerminationSet(observation, done):
                     print "Switching from option", opt.name, "to option", opt.parent.name
@@ -498,7 +511,7 @@ def main():
                 # Only update once per episode, at what would be the transition
                 newopt_episode_terminated = True
                 for exp in epi_experience[-max_steps_opt:]:
-                    new_opt.updateDQN(exp)
+                    new_opt.updateDQN(exp, ep)
                 new_opt.updateInit(epi_experience, ep)
 
             if done:
@@ -512,7 +525,14 @@ def main():
 
         print('Episode %2i, Reward: %7.3f, Steps: %i, Minutes: %7.3f'%\
             (ep, raw_reward, steps_in_ep, (time.time() - start_time)/60))
-
+    for option in optTreeToList(globalMDP):
+        print option.name
+        print
+        print option.num_updates_per_ep
+        print
+        print option.size_exp_buff_per_ep
+        print
+        print
     env.close()
 
 if __name__ == '__main__':
