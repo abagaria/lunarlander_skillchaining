@@ -251,7 +251,7 @@ def main():
             self.initiation_labels = []
             # Printing
             self.num_updates_per_ep = [0]*num_episodes
-            self.size_exp_buff_per_ep = []
+            self.size_exp_buff_per_ep = [0]*num_episodes
             self.initiation_classifier = svm.SVC(kernel="rbf")
 
             self.experience = deque(maxlen=replay_memory_capacity)
