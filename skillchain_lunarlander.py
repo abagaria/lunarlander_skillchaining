@@ -101,6 +101,7 @@ def optTreeToList(root_option):
     while len(queue) != 0:
         opt = queue.pop(0)
         optList.append(opt)
+        queue += opt.children
     return optList
 
 def findOptForState(position, root_option, ep):
